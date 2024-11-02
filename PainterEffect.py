@@ -44,8 +44,11 @@ class ObjectPainterEffect(bpy.types.Operator):
         group_input = self.create_node(node_tree, 'NodeGroupInput')
 
         distributePoint = self.create_node(node_tree, "GeometryNodeDistributePointsOnFaces")
+        distributePoint.inputs[4].default_value = 40
         alignNormal = self.create_node(node_tree, "FunctionNodeAlignRotationToVector")
         grid = self.create_node(node_tree, "GeometryNodeMeshGrid")
+        grid.inputs[0].default_value = 0.2
+        grid.inputs[1].default_value = 0.2
         instanceOnPoint = self.create_node(node_tree, "GeometryNodeInstanceOnPoints")
         translateBrush = self.create_node(node_tree, "GeometryNodeTranslateInstances")
         joinGeometry = self.create_node(node_tree, "GeometryNodeJoinGeometry")
