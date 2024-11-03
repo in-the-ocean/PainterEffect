@@ -4,6 +4,7 @@ bl_info = {
     "category": "Object",
 }
 
+import collections
 import bpy
 import bmesh
 
@@ -25,7 +26,7 @@ class ObjectPainterEffect(bpy.types.Operator):
 
     def execute(self, context):
         obj = context.active_object
-        curves = self.generate_surface_curves(obj)
+        curves = self.generate_surface_curves(obj, context)
         self.create_tangent_tracer_group(obj, curves)
     
         self.create_geometry_nodes(obj)
@@ -92,30 +93,85 @@ class ObjectPainterEffect(bpy.types.Operator):
         pass
         
     
-    def generate_surface_curves(self, obj):
+    def generate_surface_curves(self, obj, context):
         # work in progress
         # should generate bezier curves on the surface of obj to guide the direction of brush strokes
-        return None
+        return
         print('Start')
         if obj.mode == 'EDIT':
-            bm = bmesh.from_edit_mesh(obj.data)    
-            selected = [i for i in bm.verts if i.select == True]
-            print('Selected:', selected)
+            bm = bmesh.new()   # create an empty BMesh
+            bm.from_mesh(obj.data)
+            # bm = bmesh.from_edit_mesh(obj.data)    
+            bm.verts.ensure_lookup_table()
+            selected_edges = [ e for e in bm.edges if e.select ]
+            verts_on_edge_loop = self.find_edge_loops(selected_edges[0])
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+            print('Selected:', verts_on_edge_loop)
             crv = bpy.data.curves.new('crv', 'CURVE')
             crv.dimensions = '3D'
-            spline = crv.splines.new(type='BEZIER')
-            spline.bezier_points.add(len(selected)-1)
-            for p, vertex in zip(spline.bezier_points, selected):
-                print("iterating", p, vertex)
-                p.co = vertex.co # (add nurbs weight)
-                p.handle_left_type = "AUTO"
-                p.handle_right_type = "AUTO"
+            spline = self.create_spline_from_points(bm, crv, verts_on_edge_loop)
             new_bezier = bpy.data.objects.new('Bezier', crv)
             new_bezier.parent = obj
             context.collection.objects.link(new_bezier)
+
+            modifier = new_bezier.modifiers.new(name="Shrinkwrap", type='SHRINKWRAP')
+            modifier.target = obj
+
             return new_bezier
         else:
             print("Object is not in edit mode.")
+
+    def find_edge_loops(self, edge):
+        loop = edge.link_loops[0]
+        verts_on_loop = collections.deque()
+        first_loop = loop
+        curr_loop = loop
+        next_loop = None
+        expected_vert = None
+        going_forward = True
+        while True:
+            next_loop = curr_loop.link_loop_next.link_loop_radial_next.link_loop_next
+            expected_vert = curr_loop.link_loop_next.vert.index
+            next_face = next_loop.face
+
+            # If this is true then we've looped back to the beginning and are done
+            if next_loop == first_loop:
+                break
+
+            # make sure the vertex has 4 neighboring edges
+            if next_loop.vert.index != expected_vert or len(next_loop.vert.link_edges) != 4 or len(next_face.verts) != 4 or len(next_loop.edge.link_faces) != 2:
+                # If going_forward then this is the first dead end and we want to go the other way
+                if going_forward:
+                    going_forward = False
+                    verts_on_loop.append(expected_vert)
+                    # Return to the starting edge and go the other way
+                    if len(edge.link_loops) > 1:
+                        curr_loop= edge.link_loops[1]
+                        continue
+                    else:
+                        break
+                else:
+                    verts_on_loop.appendleft(expected_vert)
+                    break
+
+            if going_forward:
+                verts_on_loop.append(next_loop.vert.index)
+            else:
+                verts_on_loop.appendleft(next_loop.vert.index)
+            curr_loop = next_loop
+        return verts_on_loop
+
+    def create_spline_from_points(self, mesh, crv, points):
+        spline = crv.splines.new(type='BEZIER')
+        spline.bezier_points.add(len(points)-1)
+        for p, vert_idx in zip(spline.bezier_points, points):
+            vertex = mesh.verts[vert_idx]
+            p.co = vertex.co
+            p.handle_left_type = "AUTO"
+            p.handle_right_type = "AUTO"
+        return spline
+
           
 
 def menu_func(self, context):
