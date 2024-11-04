@@ -56,37 +56,230 @@ class ObjectPainterEffect(bpy.types.Operator):
 
         node_tree.nodes.clear()
 
+#        size_x_socket = node_tree.interface.new_socket(name='Size X', socket_type='NodeSocketFloat')
+#        size_y_socket = node_tree.interface.new_socket(name='Size Y', socket_type='NodeSocketFloat')
+#        density_socket = node_tree.interface.new_socket(name='Density', socket_type='NodeSocketFloat')
+#        rotate_socket = node_tree.interface.new_socket(name='Rotate By', socket_type='NodeSocketVector')
+#        material_socket = node_tree.interface.new_socket(name='Material', socket_type='NodeSocketMaterial')
+        
         group_input = self.create_node(node_tree, 'NodeGroupInput')
+        group_input.location = (0, 0)
+        
         distributePoint = self.create_node(node_tree, "GeometryNodeDistributePointsOnFaces")
-        distributePoint.inputs[4].default_value = 40
+        distributePoint.inputs[4].default_value = 31.700
+        distributePoint.location = (200, 200)
+        
         alignNormal = self.create_node(node_tree, "FunctionNodeAlignRotationToVector")
+        alignNormal.location = (400, 100)
+        
         grid = self.create_node(node_tree, "GeometryNodeMeshGrid")
-        grid.inputs[0].default_value = 0.2
-        grid.inputs[1].default_value = 0.2
+        grid.location = (200, -100)
+        
+        store_uv_map = self.create_node(node_tree, "GeometryNodeStoreNamedAttribute")
+        store_uv_map.inputs["Name"].default_value = "UVMap" 
+        store_uv_map.data_type = 'FLOAT_VECTOR'
+        store_uv_map.domain = "POINT" 
+        store_uv_map.location = (400, -100)
+        
         instanceOnPoint = self.create_node(node_tree, "GeometryNodeInstanceOnPoints")
+        instanceOnPoint.inputs["Scale"].default_value = (0.5, 0.3, 0.02)
+        instanceOnPoint.location = (600, 200)
+        
         translateBrush = self.create_node(node_tree, "GeometryNodeTranslateInstances")
+        translateBrush.location = (800, 200)
+        translateBrush.inputs['Translation'].default_value[2] = 0.02
+        
+        store_normal = self.create_node(node_tree, "GeometryNodeStoreNamedAttribute")
+        store_normal.inputs["Name"].default_value = "normal" 
+        store_normal.data_type = 'FLOAT_VECTOR'
+        store_normal.domain = "INSTANCE" 
+        store_normal.location = (1000, 0)
+        
+        random_value = self.create_node(node_tree, "FunctionNodeRandomValue")
+        random_value.data_type = 'FLOAT_VECTOR'
+        random_value.inputs['Min'].default_value = (-1.0, -1.0, -1.0) 
+        random_value.inputs['Max'].default_value = (1.0, 1.0, 1.0) 
+        random_value.location = (1000, 400)
+        
+        store_random = self.create_node(node_tree, "GeometryNodeStoreNamedAttribute")
+        store_random.inputs["Name"].default_value = "random" 
+        store_random.data_type = 'FLOAT_VECTOR'
+        store_random.domain = "INSTANCE" 
+        store_random.location = (1200, 0)
+        
         joinGeometry = self.create_node(node_tree, "GeometryNodeJoinGeometry")
+        joinGeometry.location = (1400, 0)
+        
+        set_material = self.create_node(node_tree, "GeometryNodeSetMaterial")
+        set_material.location = (1600, 0)
+        
+#        group_input_material = self.create_node(node_tree, "NodeGroupInput")
+#        group_input_material.location = (1200, -200)
+        
+        self_object = self.create_node(node_tree, 'GeometryNodeSelfObject')
+        self_object.location = (200, 500)
+        
+        object_info = self.create_node(node_tree, 'GeometryNodeObjectInfo')
+        object_info.transform_space = 'ORIGINAL'
+        object_info.location = (400, 500)
+        
+        vector_rotate = self.create_node(node_tree, "ShaderNodeVectorRotate")
+        vector_rotate.rotation_type = 'EULER_XYZ' 
+        vector_rotate.location = (600, 500)
+        
         group_output = self.create_node(node_tree, 'NodeGroupOutput')
-        node_tree.interface.new_socket(name="Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
-        node_tree.interface.new_socket(name="Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
-
-
+        group_output.location = (1800, 0)
+#        node_tree.interface.new_socket(name="Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
+#        node_tree.interface.new_socket(name="Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
+        
         node_tree.links.new(group_input.outputs["Geometry"], distributePoint.inputs["Mesh"])
-        node_tree.links.new(group_input.outputs["Geometry"], joinGeometry.inputs["Geometry"])
+#        node_tree.links.new(group_input.outputs["Size X"], grid.inputs["Size X"])
+#        node_tree.links.new(group_input.outputs["Size Y"], grid.inputs["Size Y"])
         node_tree.links.new(distributePoint.outputs["Points"], instanceOnPoint.inputs["Points"])
         node_tree.links.new(distributePoint.outputs["Normal"], alignNormal.inputs["Vector"])
         node_tree.links.new(alignNormal.outputs["Rotation"], instanceOnPoint.inputs["Rotation"])
-        # node_tree.links.new(in_node.outputs["Size X"], grid.inputs["Size X"])
-        # node_tree.links.new(in_node.outputs["Size Y"], grid.inputs["Size Y"])
-        node_tree.links.new(grid.outputs["Mesh"], instanceOnPoint.inputs["Instance"])
+        node_tree.links.new(grid.outputs["Mesh"], store_uv_map.inputs["Geometry"])
+        node_tree.links.new(grid.outputs["UV Map"], store_uv_map.inputs["Value"])
+        node_tree.links.new(distributePoint.outputs["Points"], instanceOnPoint.inputs["Points"])
+        node_tree.links.new(store_uv_map.outputs["Geometry"], instanceOnPoint.inputs["Instance"])
         node_tree.links.new(instanceOnPoint.outputs["Instances"], translateBrush.inputs["Instances"])
-        node_tree.links.new(translateBrush.outputs["Instances"], joinGeometry.inputs["Geometry"])
-        node_tree.links.new(joinGeometry.outputs["Geometry"], group_output.inputs["Geometry"])
+        node_tree.links.new(translateBrush.outputs["Instances"], store_normal.inputs["Geometry"])
+        node_tree.links.new(random_value.outputs["Value"], store_random.inputs["Value"])
+        node_tree.links.new(store_normal.outputs["Geometry"], store_random.inputs["Geometry"])
+        node_tree.links.new(store_random.outputs["Geometry"], joinGeometry.inputs["Geometry"])
+        node_tree.links.new(group_input.outputs["Geometry"], joinGeometry.inputs["Geometry"])
+        node_tree.links.new(joinGeometry.outputs["Geometry"], set_material.inputs["Geometry"])
+#        node_tree.links.new(group_input.outputs["Material"], set_material.inputs["Material"])
+        node_tree.links.new(self_object.outputs["Self Object"], object_info.inputs["Object"])
+        node_tree.links.new(object_info.outputs["Rotation"], vector_rotate.inputs["Rotation"])
+        node_tree.links.new(distributePoint.outputs["Normal"], vector_rotate.inputs["Vector"])
+        node_tree.links.new(vector_rotate.outputs["Vector"], store_normal.inputs["Value"])
+        node_tree.links.new(set_material.outputs["Geometry"], group_output.inputs["Geometry"])
 
     def create_shader(self, obj):
-        # TODO: create the node tree for Shader Editor
-        # Handles the randomness of stroke color, texture of brush storkes, etc
-        pass
+        # Ensure the object has a material slot
+        if not obj.data.materials:
+            # Create a new material
+            material = bpy.data.materials.new(name="Material")
+            obj.data.materials.append(material)
+        else:
+            # Get the first material if one already exists
+            material = obj.data.materials[0]
+
+        # Check if the material uses nodes
+        if not material.use_nodes:
+            material.use_nodes = True
+
+        # Access the node tree
+        node_tree = material.node_tree
+
+        # Clear existing nodes
+        for node in node_tree.nodes:
+            node_tree.nodes.remove(node)
+
+        geometry = self.create_node(node_tree, 'ShaderNodeNewGeometry')
+        geometry.location = (0, 0)
+        
+        
+        attribute_normal = node_tree.nodes.new(type='ShaderNodeAttribute')
+        attribute_normal.attribute_type = 'INSTANCER'
+        attribute_normal.name = 'normal'
+        attribute_normal.location = (200, -100)
+        
+        multiply_add_a = node_tree.nodes.new(type='ShaderNodeMath')
+        multiply_add_a.operation = 'MULTIPLY_ADD'
+        multiply_add_a.inputs[0].default_value = 0.2 
+        multiply_add_a.inputs[1].default_value = 1.0 
+        multiply_add_a.location = (200, 100)
+
+#        add_node = node_tree.nodes.new(type='ShaderNodeMath')
+#        add_node.operation = 'ADD'  
+
+        mix_rgb = node_tree.nodes.new(type='ShaderNodeMix')
+        mix_rgb.data_type = 'VECTOR'  
+#        mix_rgb.use_clamp = True  
+#        mix_rgb.inputs['Fac'].default_value = 1.0  
+        mix_rgb.location = (400, 0)
+        
+        multiply_add_b = node_tree.nodes.new(type='ShaderNodeMath')
+        multiply_add_b.operation = 'MULTIPLY_ADD'
+        multiply_add_b.inputs[0].default_value = 0.2 
+        multiply_add_b.inputs[1].default_value = 1.0 
+        multiply_add_b.location = (200, 300)
+
+        multiply_add_c = node_tree.nodes.new(type='ShaderNodeMath')
+        multiply_add_c.operation = 'MULTIPLY_ADD'
+        multiply_add_c.inputs[0].default_value = 0.02 
+        multiply_add_c.inputs[1].default_value = 0.5
+        multiply_add_c.location = (200, 500)
+        
+        attribute_random = node_tree.nodes.new(type='ShaderNodeAttribute')
+        attribute_random.attribute_type = 'INSTANCER'
+        attribute_random.name = "normal" 
+        attribute_random.location = (-200, 300)
+        
+        separate_color = node_tree.nodes.new(type='ShaderNodeSeparateColor')
+        separate_color.location = (0, 300)
+        
+        hue_saturation = node_tree.nodes.new(type='ShaderNodeHueSaturation')
+        hue_saturation.location = (400, 300)
+        
+        attribute_uvmap = node_tree.nodes.new(type='ShaderNodeAttribute')
+        attribute_uvmap.attribute_type = 'GEOMETRY'
+        attribute_uvmap.name = 'uvmap'
+        attribute_uvmap.location = (-200, -400)
+        
+        image_texture = node_tree.nodes.new(type='ShaderNodeTexImage')
+        image_texture.location = (0, -400)
+        #TODO: add image 
+#        image_path = "/path/to/your/image.jpg" 
+#        image = bpy.data.images.load(image_path)
+#        image_texture.image = image
+        
+        multiply = node_tree.nodes.new(type='ShaderNodeMath')
+        multiply.operation = 'MULTIPLY'
+        multiply.location = (300, -400)
+        
+        light_path = node_tree.nodes.new(type='ShaderNodeLightPath')
+        light_path.location = (0, -700)
+        
+        mix_float = node_tree.nodes.new(type='ShaderNodeMix')
+        mix_float.data_type = 'FLOAT'  
+#        mix_float.use_clamp = True  
+#        mix_float.inputs['Fac'].default_value = 1.0  
+        mix_float.location = (500, -400)
+        
+        principled_bsdf = node_tree.nodes.new(type='ShaderNodeBsdfPrincipled')
+        principled_bsdf.inputs['Metallic'].default_value = 0.387
+        principled_bsdf.inputs['Roughness'].default_value = 0.573 
+        principled_bsdf.inputs['IOR'].default_value = 1.5  
+        principled_bsdf.location = (700, -400)
+        
+        material_output = node_tree.nodes.new(type='ShaderNodeOutputMaterial')
+        material_output.location = (1000, -400)
+        
+    
+        node_tree.links.new(geometry.outputs["Normal"], mix_rgb.inputs["A"])
+        node_tree.links.new(attribute_normal.outputs["Vector"], mix_rgb.inputs["B"])
+        node_tree.links.new(mix_rgb.outputs["Result"], principled_bsdf.inputs["Normal"])
+        node_tree.links.new(principled_bsdf.outputs["BSDF"], material_output.inputs["Surface"])
+        node_tree.links.new(attribute_uvmap.outputs["Vector"], image_texture.inputs["Vector"])
+        node_tree.links.new(image_texture.outputs["Alpha"], multiply.inputs[1])
+        node_tree.links.new(light_path.outputs["Is Camera Ray"], multiply.inputs["Value"])
+        node_tree.links.new(attribute_normal.outputs["Alpha"], mix_float.inputs["Factor"])
+        node_tree.links.new(multiply.outputs["Value"], mix_float.inputs["B"])
+        node_tree.links.new(mix_float.outputs["Result"], principled_bsdf.inputs["Alpha"])
+        node_tree.links.new(attribute_normal.outputs["Alpha"], mix_rgb.inputs["Factor"])
+        node_tree.links.new(multiply_add_c.outputs["Value"], hue_saturation.inputs["Hue"])
+        node_tree.links.new(multiply_add_b.outputs["Value"], hue_saturation.inputs["Saturation"])
+        node_tree.links.new(multiply_add_a.outputs["Value"], hue_saturation.inputs["Value"])
+        node_tree.links.new(hue_saturation.outputs["Color"], principled_bsdf.inputs["Base Color"])
+        node_tree.links.new(separate_color.outputs["Red"], multiply_add_c.inputs["Value"])
+        node_tree.links.new(separate_color.outputs["Green"], multiply_add_b.inputs["Value"])
+        node_tree.links.new(separate_color.outputs["Blue"], multiply_add_a.inputs["Value"])
+        node_tree.links.new(attribute_random.outputs["Color"], separate_color.inputs["Color"])
+
+
     
     def create_tangent_tracer_group(self, obj, curves):
         # TODO: create the geometry node group that changes the direction of the brush strokes to follow the tangent of the curves
