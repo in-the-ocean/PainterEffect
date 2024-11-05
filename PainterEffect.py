@@ -129,8 +129,8 @@ class ObjectPainterEffect(bpy.types.Operator):
         
         group_output = self.create_node(node_tree, 'NodeGroupOutput')
         group_output.location = (1800, 0)
-#        node_tree.interface.new_socket(name="Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
-#        node_tree.interface.new_socket(name="Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
+        node_tree.interface.new_socket(name="Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
+        node_tree.interface.new_socket(name="Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
         
         node_tree.links.new(group_input.outputs["Geometry"], distributePoint.inputs["Mesh"])
 #        node_tree.links.new(group_input.outputs["Size X"], grid.inputs["Size X"])
@@ -157,6 +157,7 @@ class ObjectPainterEffect(bpy.types.Operator):
         node_tree.links.new(set_material.outputs["Geometry"], group_output.inputs["Geometry"])
 
     def create_shader(self, obj):
+        material = None
         # Ensure the object has a material slot
         if not obj.data.materials:
             # Create a new material
@@ -286,74 +287,135 @@ class ObjectPainterEffect(bpy.types.Operator):
         pass
         
     
+    # generate bezier curves on the surface of obj to guide the direction of brush strokes
+    # NOTE: work in progress
+    # TODO: handle cases when there is no loop
+    # TODO: handle cases when there is multiple loops that do not expand to each other
+    # TODO: reduce frequency of curves when mesh is very complicated
     def generate_surface_curves(self, obj, context):
-        # work in progress
-        # should generate bezier curves on the surface of obj to guide the direction of brush strokes
-        return
-        print('Start')
-        if obj.mode == 'EDIT':
-            bm = bmesh.new()   # create an empty BMesh
-            bm.from_mesh(obj.data)
-            # bm = bmesh.from_edit_mesh(obj.data)    
-            bm.verts.ensure_lookup_table()
-            selected_edges = [ e for e in bm.edges if e.select ]
-            verts_on_edge_loop = self.find_edge_loops(selected_edges[0])
-            bpy.ops.object.mode_set(mode='OBJECT')
+        bm = bmesh.new()   # create an empty BMesh
+        bm.from_mesh(obj.data)
+        bm.verts.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
 
-            print('Selected:', verts_on_edge_loop)
-            crv = bpy.data.curves.new('crv', 'CURVE')
-            crv.dimensions = '3D'
-            spline = self.create_spline_from_points(bm, crv, verts_on_edge_loop)
-            new_bezier = bpy.data.objects.new('Bezier', crv)
-            new_bezier.parent = obj
-            context.collection.objects.link(new_bezier)
+        # selected_edges = [ e for e in bm.edges if e.select ]
+        # verts_on_edge_loop = self.find_edge_loops(selected_edges[0], set(), [])
+        e, verts_on_edge_loop = self.find_first_loop(bm)
+        spline_points = []
+        visited_edge = set() # searched for edge loop
+        expanded_edge = set() # expanded to neighbors
+        used_points = set() 
+        edge_queue = collections.deque()
+        edge_queue.append(e.index)
+        while len(edge_queue) > 0:
+            top = edge_queue.popleft()
+            if top in expanded_edge:
+                continue
+            if top not in visited_edge:
+                curr_verts = self.find_edge_loops(bm.edges[top], visited_edge, used_points, edge_queue)
+                if len(curr_verts) >= 3:
+                    spline_points.append(curr_verts)
+                    used_points.update(curr_verts)
+            neighbors = self.find_neighboring_edge(bm.edges[top])
+            edge_queue.extend(neighbors)
+            expanded_edge.add(top)
 
-            modifier = new_bezier.modifiers.new(name="Shrinkwrap", type='SHRINKWRAP')
-            modifier.target = obj
 
-            return new_bezier
-        else:
-            print("Object is not in edit mode.")
+        print('first loop:', verts_on_edge_loop)
+        print("spline points:", spline_points)
+        crv = bpy.data.curves.new('crv', 'CURVE')
+        crv.dimensions = '3D'
+        for points in spline_points:
+            spline = self.create_spline_from_points(bm, crv, points)
+        # spline = self.create_spline_from_points(bm, crv, verts_on_edge_loop)
+        new_bezier = bpy.data.objects.new('Bezier', crv)
+        new_bezier.parent = obj
+        context.collection.objects.link(new_bezier)
 
-    def find_edge_loops(self, edge):
-        loop = edge.link_loops[0]
+        modifier = new_bezier.modifiers.new(name="Shrinkwrap", type='SHRINKWRAP')
+        modifier.target = obj
+
+        return new_bezier
+
+    def find_first_loop(self, bmesh):
+        used_edge = set()
+        for e in bmesh.edges:
+            if e.index in used_edge:
+                continue
+            verts = self.find_edge_loops(e, used_edge, set(), [])
+            if len(verts) >= 4 and verts[0] == verts[-1]:
+                return (e, verts)
+        return None
+
+    def find_edge_loops(self, edge, used_edge, used_points, queue):
         verts_on_loop = collections.deque()
+        for v in edge.verts:
+            if v.index in used_points:
+                return verts_on_loop
+        if len(edge.link_loops) == 0:
+            return verts_on_loop
+        used_edge.add(edge.index)
+        queue.append(edge.index)
+        loop = edge.link_loops[0]
+        verts_on_loop.append(loop.vert.index)
         first_loop = loop
         curr_loop = loop
-        next_loop = None
-        expected_vert = None
         going_forward = True
+        direction_flag = False
         while True:
             next_loop = curr_loop.link_loop_next.link_loop_radial_next.link_loop_next
             expected_vert = curr_loop.link_loop_next.vert.index
-            next_face = next_loop.face
 
             # If this is true then we've looped back to the beginning and are done
             if next_loop == first_loop:
+                print("found loop")
+                verts_on_loop.append(next_loop.vert.index)
                 break
 
             # make sure the vertex has 4 neighboring edges
-            if next_loop.vert.index != expected_vert or len(next_loop.vert.link_edges) != 4 or len(next_face.verts) != 4 or len(next_loop.edge.link_faces) != 2:
+            if expected_vert in used_points or next_loop.vert.index != expected_vert \
+                or len(next_loop.vert.link_edges) != 4 or len(next_loop.edge.link_faces) != 2:
                 # If going_forward then this is the first dead end and we want to go the other way
                 if going_forward:
                     going_forward = False
-                    verts_on_loop.append(expected_vert)
+                    if not expected_vert in used_points:
+                        verts_on_loop.append(expected_vert)
                     # Return to the starting edge and go the other way
                     if len(edge.link_loops) > 1:
                         curr_loop= edge.link_loops[1]
+                        direction_flag = True
                         continue
                     else:
                         break
                 else:
-                    verts_on_loop.appendleft(expected_vert)
+                    if not direction_flag and not expected_vert in used_points:
+                        verts_on_loop.appendleft(expected_vert)
                     break
 
-            if going_forward:
-                verts_on_loop.append(next_loop.vert.index)
+            if not direction_flag:
+                used_edge.add(next_loop.edge.index)
+                queue.append(next_loop.edge.index)
+                if going_forward:
+                    verts_on_loop.append(next_loop.vert.index)
+                else:
+                    verts_on_loop.appendleft(next_loop.vert.index)
             else:
-                verts_on_loop.appendleft(next_loop.vert.index)
+                direction_flag = False
             curr_loop = next_loop
         return verts_on_loop
+
+    def find_neighboring_edge(self, edge):
+        if len(edge.link_loops) > 2 or len(edge.link_faces) != 2:
+            return []
+        neighbor = []
+        for loop in edge.link_loops:
+            if len(loop.face.verts) != 4:
+                continue
+            next_loop = loop.link_loop_radial_next.link_loop_next.link_loop_next
+            next_face = next_loop.face
+            if len(next_face.verts) == 4 and len(next_loop.edge.link_faces) == 2:
+                neighbor.append(next_loop.edge.index)
+        return neighbor
 
     def create_spline_from_points(self, mesh, crv, points):
         spline = crv.splines.new(type='BEZIER')
