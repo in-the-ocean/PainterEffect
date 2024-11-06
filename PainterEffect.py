@@ -29,8 +29,8 @@ class ObjectPainterEffect(bpy.types.Operator):
         curves = self.generate_surface_curves(obj, context)
         self.create_tangent_tracer_group(obj, curves)
     
-        self.create_geometry_nodes(obj)
-        self.create_shader(obj)
+        # self.create_geometry_nodes(obj)
+        # self.create_shader(obj)
 
         return {'FINISHED'}
     
@@ -289,8 +289,6 @@ class ObjectPainterEffect(bpy.types.Operator):
     
     # generate bezier curves on the surface of obj to guide the direction of brush strokes
     # NOTE: work in progress
-    # TODO: handle cases when there is no loop
-    # TODO: handle cases when there is multiple loops that do not expand to each other
     # TODO: reduce frequency of curves when mesh is very complicated
     def generate_surface_curves(self, obj, context):
         bm = bmesh.new()   # create an empty BMesh
@@ -300,13 +298,16 @@ class ObjectPainterEffect(bpy.types.Operator):
 
         # selected_edges = [ e for e in bm.edges if e.select ]
         # verts_on_edge_loop = self.find_edge_loops(selected_edges[0], set(), [])
-        e, verts_on_edge_loop = self.find_first_loop(bm)
+        initial_loops = self.find_first_loop(bm)
+        if initial_loops is None: # couldn't find any valid loops
+            return None
         spline_points = []
         visited_edge = set() # searched for edge loop
         expanded_edge = set() # expanded to neighbors
         used_points = set() 
         edge_queue = collections.deque()
-        edge_queue.append(e.index)
+        for e, _ in initial_loops:
+            edge_queue.append(e.index)
         while len(edge_queue) > 0:
             top = edge_queue.popleft()
             if top in expanded_edge:
@@ -321,7 +322,7 @@ class ObjectPainterEffect(bpy.types.Operator):
             expanded_edge.add(top)
 
 
-        print('first loop:', verts_on_edge_loop)
+        print('first loop:', initial_loops)
         print("spline points:", spline_points)
         crv = bpy.data.curves.new('crv', 'CURVE')
         crv.dimensions = '3D'
@@ -337,16 +338,29 @@ class ObjectPainterEffect(bpy.types.Operator):
 
         return new_bezier
 
+    # Find the initial loops to render
+    # if there are full cycles, return all the full cycles
+    # otherwise, return the longest path 
     def find_first_loop(self, bmesh):
         used_edge = set()
+        cycles = []
+        longest_path = None
+        max_len = 0
         for e in bmesh.edges:
             if e.index in used_edge:
                 continue
             verts = self.find_edge_loops(e, used_edge, set(), [])
+            if len(verts) >= 3 and len(verts) > max_len:
+                max_len = len(verts)
+                longest_path = [(e, verts)]
             if len(verts) >= 4 and verts[0] == verts[-1]:
-                return (e, verts)
-        return None
+                cycles.append((e, verts))
+        if len(cycles) > 0:
+            return cycles
+        return longest_path
 
+    # given an edge, find the longest edge loop that contains it and return the vertices on that loop
+    # stop if the loop hits an used edge or used points
     def find_edge_loops(self, edge, used_edge, used_points, queue):
         verts_on_loop = collections.deque()
         for v in edge.verts:
@@ -404,6 +418,8 @@ class ObjectPainterEffect(bpy.types.Operator):
             curr_loop = next_loop
         return verts_on_loop
 
+    # given an edge, find neighboring edges that on on the opposite side of it on the same face (if the face consists of 4 edges)
+    # this shold only return 1 or 2 neighbors
     def find_neighboring_edge(self, edge):
         if len(edge.link_loops) > 2 or len(edge.link_faces) != 2:
             return []
@@ -417,6 +433,8 @@ class ObjectPainterEffect(bpy.types.Operator):
                 neighbor.append(next_loop.edge.index)
         return neighbor
 
+    # generate a bezier curve given the control points
+    # the handles are automatically set by blender
     def create_spline_from_points(self, mesh, crv, points):
         spline = crv.splines.new(type='BEZIER')
         spline.bezier_points.add(len(points)-1)
