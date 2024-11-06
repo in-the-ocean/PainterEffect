@@ -29,8 +29,8 @@ class ObjectPainterEffect(bpy.types.Operator):
         curves = self.generate_surface_curves(obj, context)
         self.create_tangent_tracer_group(obj, curves)
     
-        # self.create_geometry_nodes(obj)
-        # self.create_shader(obj)
+        self.create_geometry_nodes(obj)
+        self.create_shader(obj)
 
         return {'FINISHED'}
     
