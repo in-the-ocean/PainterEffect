@@ -7,6 +7,7 @@ bl_info = {
 import collections
 import bpy
 import bmesh
+import os
 
 
 class ObjectPainterEffect(bpy.types.Operator):
@@ -53,7 +54,9 @@ class ObjectPainterEffect(bpy.types.Operator):
             node_tree = bpy.data.node_groups.new('painter_geometry_node', 'GeometryNodeTree')
             # Get the node tree
             modifier.node_group = node_tree
-
+        if node_tree is None:
+            self.report({'ERROR'}, "Failed to create or access the Geometry Nodes node tree.")
+            return 
         node_tree.nodes.clear()
 
 #        size_x_socket = node_tree.interface.new_socket(name='Size X', socket_type='NodeSocketFloat')
@@ -113,8 +116,8 @@ class ObjectPainterEffect(bpy.types.Operator):
         set_material = self.create_node(node_tree, "GeometryNodeSetMaterial")
         set_material.location = (1600, 0)
         
-#        group_input_material = self.create_node(node_tree, "NodeGroupInput")
-#        group_input_material.location = (1200, -200)
+        group_input_material = self.create_node(node_tree, "NodeGroupInput")
+        group_input_material.location = (1200, -200)
         
         self_object = self.create_node(node_tree, 'GeometryNodeSelfObject')
         self_object.location = (200, 500)
@@ -133,8 +136,8 @@ class ObjectPainterEffect(bpy.types.Operator):
         node_tree.interface.new_socket(name="Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
         
         node_tree.links.new(group_input.outputs["Geometry"], distributePoint.inputs["Mesh"])
-#        node_tree.links.new(group_input.outputs["Size X"], grid.inputs["Size X"])
-#        node_tree.links.new(group_input.outputs["Size Y"], grid.inputs["Size Y"])
+        node_tree.links.new(group_input.outputs["Size X"], grid.inputs["Size X"])
+        node_tree.links.new(group_input.outputs["Size Y"], grid.inputs["Size Y"])
         node_tree.links.new(distributePoint.outputs["Points"], instanceOnPoint.inputs["Points"])
         node_tree.links.new(distributePoint.outputs["Normal"], alignNormal.inputs["Vector"])
         node_tree.links.new(alignNormal.outputs["Rotation"], instanceOnPoint.inputs["Rotation"])
@@ -149,7 +152,7 @@ class ObjectPainterEffect(bpy.types.Operator):
         node_tree.links.new(store_random.outputs["Geometry"], joinGeometry.inputs["Geometry"])
         node_tree.links.new(group_input.outputs["Geometry"], joinGeometry.inputs["Geometry"])
         node_tree.links.new(joinGeometry.outputs["Geometry"], set_material.inputs["Geometry"])
-#        node_tree.links.new(group_input.outputs["Material"], set_material.inputs["Material"])
+        # node_tree.links.new(group_input_material.outputs["Material"], set_material.inputs["Material"])
         node_tree.links.new(self_object.outputs["Self Object"], object_info.inputs["Object"])
         node_tree.links.new(object_info.outputs["Rotation"], vector_rotate.inputs["Rotation"])
         node_tree.links.new(distributePoint.outputs["Normal"], vector_rotate.inputs["Vector"])
@@ -185,12 +188,13 @@ class ObjectPainterEffect(bpy.types.Operator):
         attribute_normal = node_tree.nodes.new(type='ShaderNodeAttribute')
         attribute_normal.attribute_type = 'INSTANCER'
         attribute_normal.name = 'normal'
+        attribute_normal.attribute_name = 'normal'
         attribute_normal.location = (200, -100)
         
         multiply_add_a = node_tree.nodes.new(type='ShaderNodeMath')
         multiply_add_a.operation = 'MULTIPLY_ADD'
-        multiply_add_a.inputs[0].default_value = 0.2 
-        multiply_add_a.inputs[1].default_value = 1.0 
+        multiply_add_a.inputs[1].default_value = 0.2 #multiplier
+        multiply_add_a.inputs[2].default_value = 1.0 #addend
         multiply_add_a.location = (200, 100)
 
 #        add_node = node_tree.nodes.new(type='ShaderNodeMath')
@@ -204,19 +208,20 @@ class ObjectPainterEffect(bpy.types.Operator):
         
         multiply_add_b = node_tree.nodes.new(type='ShaderNodeMath')
         multiply_add_b.operation = 'MULTIPLY_ADD'
-        multiply_add_b.inputs[0].default_value = 0.2 
-        multiply_add_b.inputs[1].default_value = 1.0 
+        multiply_add_b.inputs[1].default_value = 0.2 #multiplier
+        multiply_add_b.inputs[2].default_value = 1.0 #addend
         multiply_add_b.location = (200, 300)
 
         multiply_add_c = node_tree.nodes.new(type='ShaderNodeMath')
         multiply_add_c.operation = 'MULTIPLY_ADD'
-        multiply_add_c.inputs[0].default_value = 0.02 
-        multiply_add_c.inputs[1].default_value = 0.5
+        multiply_add_c.inputs[1].default_value = 0.02  #multiplier
+        multiply_add_c.inputs[2].default_value = 0.5  #addend
         multiply_add_c.location = (200, 500)
         
         attribute_random = node_tree.nodes.new(type='ShaderNodeAttribute')
         attribute_random.attribute_type = 'INSTANCER'
-        attribute_random.name = "normal" 
+        attribute_random.name = "random" 
+        attribute_random.attribute_name = "random"
         attribute_random.location = (-200, 300)
         
         separate_color = node_tree.nodes.new(type='ShaderNodeSeparateColor')
@@ -232,10 +237,19 @@ class ObjectPainterEffect(bpy.types.Operator):
         
         image_texture = node_tree.nodes.new(type='ShaderNodeTexImage')
         image_texture.location = (0, -400)
-        #TODO: add image 
-#        image_path = "/path/to/your/image.jpg" 
-#        image = bpy.data.images.load(image_path)
-#        image_texture.image = image
+
+        # image_path = "stroke.png" 
+        # image = bpy.data.images.load(image_path)
+        # image_texture.image = image
+        # TODO: this iswhen the png is the same directory as the current blend
+        blend_file_directory = os.path.dirname(bpy.data.filepath)
+        image_path = os.path.join(blend_file_directory, "stroke.png")
+
+        if os.path.exists(image_path):
+            image = bpy.data.images.load(image_path)
+            image_texture.image = image
+        else:
+            self.report({'ERROR'}, f"Cannot find image file at {image_path}")
         
         multiply = node_tree.nodes.new(type='ShaderNodeMath')
         multiply.operation = 'MULTIPLY'
@@ -271,9 +285,11 @@ class ObjectPainterEffect(bpy.types.Operator):
         node_tree.links.new(multiply.outputs["Value"], mix_float.inputs["B"])
         node_tree.links.new(mix_float.outputs["Result"], principled_bsdf.inputs["Alpha"])
         node_tree.links.new(attribute_normal.outputs["Alpha"], mix_rgb.inputs["Factor"])
+
         node_tree.links.new(multiply_add_c.outputs["Value"], hue_saturation.inputs["Hue"])
         node_tree.links.new(multiply_add_b.outputs["Value"], hue_saturation.inputs["Saturation"])
         node_tree.links.new(multiply_add_a.outputs["Value"], hue_saturation.inputs["Value"])
+
         node_tree.links.new(hue_saturation.outputs["Color"], principled_bsdf.inputs["Base Color"])
         node_tree.links.new(separate_color.outputs["Red"], multiply_add_c.inputs["Value"])
         node_tree.links.new(separate_color.outputs["Green"], multiply_add_b.inputs["Value"])
