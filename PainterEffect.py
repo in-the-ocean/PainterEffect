@@ -9,6 +9,12 @@ import bpy
 import bmesh
 import os
 
+SHADER_NAME = "painter_brush_material"
+GEOMETRY_NAME = "paitner_effect_geometry"
+ATTRIBUTE_UVMAP = "uvmap"
+ATTRIBUTE_RANDOM = "random"
+ATTRIBUTE_NORMAL = "normal"
+
 
 class ObjectPainterEffect(bpy.types.Operator):
     """Object Cursor Array"""
@@ -27,15 +33,15 @@ class ObjectPainterEffect(bpy.types.Operator):
 
     def execute(self, context):
         obj = context.active_object
-        curves = self.generate_surface_curves(obj, context)
-        self.create_tangent_tracer_group(obj, curves)
+        # curves = self.generate_surface_curves(obj, context)
+        # self.create_tangent_tracer_group(obj, curves)
     
-        self.create_geometry_nodes(obj)
-        self.create_shader(obj)
+        brush_material = self.create_shader(obj)
+        self.create_geometry_nodes(obj, brush_material)
 
         return {'FINISHED'}
     
-    def create_geometry_nodes(self, obj):
+    def create_geometry_nodes(self, obj, brush_material):
             
         node_tree = None
 
@@ -51,7 +57,7 @@ class ObjectPainterEffect(bpy.types.Operator):
             print("creating new")
             modifier = obj.modifiers.new(name="GeometryNodes", type='NODES')
 
-            node_tree = bpy.data.node_groups.new('painter_geometry_node', 'GeometryNodeTree')
+            node_tree = bpy.data.node_groups.new(GEOMETRY_NAME, 'GeometryNodeTree')
             # Get the node tree
             modifier.node_group = node_tree
         if node_tree is None:
@@ -79,7 +85,7 @@ class ObjectPainterEffect(bpy.types.Operator):
         grid.location = (200, -100)
         
         store_uv_map = self.create_node(node_tree, "GeometryNodeStoreNamedAttribute")
-        store_uv_map.inputs["Name"].default_value = "UVMap" 
+        store_uv_map.inputs["Name"].default_value = ATTRIBUTE_UVMAP
         store_uv_map.data_type = 'FLOAT_VECTOR'
         store_uv_map.domain = "POINT" 
         store_uv_map.location = (400, -100)
@@ -93,7 +99,7 @@ class ObjectPainterEffect(bpy.types.Operator):
         translateBrush.inputs['Translation'].default_value[2] = 0.02
         
         store_normal = self.create_node(node_tree, "GeometryNodeStoreNamedAttribute")
-        store_normal.inputs["Name"].default_value = "normal" 
+        store_normal.inputs["Name"].default_value = ATTRIBUTE_NORMAL
         store_normal.data_type = 'FLOAT_VECTOR'
         store_normal.domain = "INSTANCE" 
         store_normal.location = (1000, 0)
@@ -105,7 +111,7 @@ class ObjectPainterEffect(bpy.types.Operator):
         random_value.location = (1000, 400)
         
         store_random = self.create_node(node_tree, "GeometryNodeStoreNamedAttribute")
-        store_random.inputs["Name"].default_value = "random" 
+        store_random.inputs["Name"].default_value = ATTRIBUTE_RANDOM
         store_random.data_type = 'FLOAT_VECTOR'
         store_random.domain = "INSTANCE" 
         store_random.location = (1200, 0)
@@ -115,6 +121,7 @@ class ObjectPainterEffect(bpy.types.Operator):
         
         set_material = self.create_node(node_tree, "GeometryNodeSetMaterial")
         set_material.location = (1600, 0)
+        set_material.inputs[2].default_value = brush_material
         
         group_input_material = self.create_node(node_tree, "NodeGroupInput")
         group_input_material.location = (1200, -200)
@@ -136,8 +143,8 @@ class ObjectPainterEffect(bpy.types.Operator):
         node_tree.interface.new_socket(name="Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
         
         node_tree.links.new(group_input.outputs["Geometry"], distributePoint.inputs["Mesh"])
-        node_tree.links.new(group_input.outputs["Size X"], grid.inputs["Size X"])
-        node_tree.links.new(group_input.outputs["Size Y"], grid.inputs["Size Y"])
+        # node_tree.links.new(group_input.outputs["Size X"], grid.inputs["Size X"])
+        # node_tree.links.new(group_input.outputs["Size Y"], grid.inputs["Size Y"])
         node_tree.links.new(distributePoint.outputs["Points"], instanceOnPoint.inputs["Points"])
         node_tree.links.new(distributePoint.outputs["Normal"], alignNormal.inputs["Vector"])
         node_tree.links.new(alignNormal.outputs["Rotation"], instanceOnPoint.inputs["Rotation"])
@@ -161,14 +168,13 @@ class ObjectPainterEffect(bpy.types.Operator):
 
     def create_shader(self, obj):
         material = None
-        # Ensure the object has a material slot
-        if not obj.data.materials:
-            # Create a new material
-            material = bpy.data.materials.new(name="Material")
+        for m in obj.data.materials:
+            if m.name == SHADER_NAME:
+                material = m
+                break
+        if material is None:
+            material = bpy.data.materials.new(name=SHADER_NAME)
             obj.data.materials.append(material)
-        else:
-            # Get the first material if one already exists
-            material = obj.data.materials[0]
 
         # Check if the material uses nodes
         if not material.use_nodes:
@@ -187,8 +193,8 @@ class ObjectPainterEffect(bpy.types.Operator):
         
         attribute_normal = node_tree.nodes.new(type='ShaderNodeAttribute')
         attribute_normal.attribute_type = 'INSTANCER'
-        attribute_normal.name = 'normal'
-        attribute_normal.attribute_name = 'normal'
+        attribute_normal.attribute_name = ATTRIBUTE_NORMAL
+        # attribute_normal.inputs["Name"].default_value = "normal" 
         attribute_normal.location = (200, -100)
         
         multiply_add_a = node_tree.nodes.new(type='ShaderNodeMath')
@@ -220,8 +226,7 @@ class ObjectPainterEffect(bpy.types.Operator):
         
         attribute_random = node_tree.nodes.new(type='ShaderNodeAttribute')
         attribute_random.attribute_type = 'INSTANCER'
-        attribute_random.name = "random" 
-        attribute_random.attribute_name = "random"
+        attribute_random.attribute_name = ATTRIBUTE_RANDOM
         attribute_random.location = (-200, 300)
         
         separate_color = node_tree.nodes.new(type='ShaderNodeSeparateColor')
@@ -229,10 +234,11 @@ class ObjectPainterEffect(bpy.types.Operator):
         
         hue_saturation = node_tree.nodes.new(type='ShaderNodeHueSaturation')
         hue_saturation.location = (400, 300)
+        hue_saturation.inputs[4].default_value = (0.506, 0.8, 0.192, 1)
         
         attribute_uvmap = node_tree.nodes.new(type='ShaderNodeAttribute')
         attribute_uvmap.attribute_type = 'GEOMETRY'
-        attribute_uvmap.name = 'uvmap'
+        attribute_uvmap.attribute_name = ATTRIBUTE_UVMAP
         attribute_uvmap.location = (-200, -400)
         
         image_texture = node_tree.nodes.new(type='ShaderNodeTexImage')
@@ -261,7 +267,7 @@ class ObjectPainterEffect(bpy.types.Operator):
         mix_float = node_tree.nodes.new(type='ShaderNodeMix')
         mix_float.data_type = 'FLOAT'  
 #        mix_float.use_clamp = True  
-#        mix_float.inputs['Fac'].default_value = 1.0  
+        mix_float.inputs['A'].default_value = 1.0  
         mix_float.location = (500, -400)
         
         principled_bsdf = node_tree.nodes.new(type='ShaderNodeBsdfPrincipled')
@@ -296,6 +302,7 @@ class ObjectPainterEffect(bpy.types.Operator):
         node_tree.links.new(separate_color.outputs["Blue"], multiply_add_a.inputs["Value"])
         node_tree.links.new(attribute_random.outputs["Color"], separate_color.inputs["Color"])
 
+        return material
 
     
     def create_tangent_tracer_group(self, obj, curves):
