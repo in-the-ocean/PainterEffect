@@ -7,13 +7,17 @@ bl_info = {
 import collections
 import bpy
 import bmesh
+import math
 import os
 
 SHADER_NAME = "painter_brush_material"
 GEOMETRY_NAME = "painter_effect_geometry"
+CURVE_TANGENT_NAME = "Painter Effect Curve Tangent"
 ATTRIBUTE_UVMAP = "brushUV"
 ATTRIBUTE_RANDOM = "random"
 ATTRIBUTE_NORMAL = "normal"
+
+TARGET_LINE_NUMBER = 30
 
 
 class ObjectPainterEffect(bpy.types.Operator):
@@ -33,15 +37,100 @@ class ObjectPainterEffect(bpy.types.Operator):
 
     def execute(self, context):
         obj = context.active_object
-        # curves = self.generate_surface_curves(obj, context)
-        # self.create_tangent_tracer_group(obj, curves)
+        curves = self.generate_surface_curves(obj, context)
+        tangent_group_name = self.create_tangent_tracer_group()
     
         brush_material, existing_img_texture = self.create_shader(obj)
-        self.create_geometry_nodes(obj, brush_material, existing_img_texture)
+        self.create_geometry_nodes(obj, tangent_group_name, curves, brush_material)
 
         return {'FINISHED'}
+
+    def create_tangent_tracer_group(self):
+        node_tree = bpy.data.node_groups.new(CURVE_TANGENT_NAME, 'GeometryNodeTree')
+
+        node_tree.interface.new_socket(name="Mesh", in_out="INPUT", socket_type="NodeSocketGeometry")
+        node_tree.interface.new_socket(name="Instance", in_out="INPUT", socket_type="NodeSocketGeometry")
+        node_tree.interface.new_socket(name="Curve", in_out="INPUT", socket_type="NodeSocketObject")
+        node_tree.interface.new_socket(name="Normal", in_out="OUTPUT", socket_type="NodeSocketVector")
+        node_tree.interface.new_socket(name="Instances", in_out="OUTPUT", socket_type="NodeSocketGeometry")
+
+        group_input_1 = self.create_node(node_tree, 'NodeGroupInput')
+        group_input_1.location = (0, 0)
+
+        group_input_2 = self.create_node(node_tree, 'NodeGroupInput')
+        group_input_2.location = (-800, 300)
+
+        group_output = self.create_node(node_tree, 'NodeGroupOutput')
+        group_output.location = (1200, 0)
+
+
+        object_info = self.create_node(node_tree, 'GeometryNodeObjectInfo')
+        object_info.location = (-600, 300)
+
+        curve_to_mesh = self.create_node(node_tree, 'GeometryNodeCurveToMesh')
+        curve_to_mesh.location = (-400, 300)
+
+        mesh_to_curve = self.create_node(node_tree, 'GeometryNodeMeshToCurve')
+        mesh_to_curve.location = (-200, 300)
+
+        curve_tangent = self.create_node(node_tree, 'GeometryNodeInputTangent')
+        curve_tangent.location = (-200, 400)
+        print(curve_tangent.outputs["Tangent"])
+
+        capture_curve_tangent = self.create_node(node_tree, 'GeometryNodeCaptureAttribute')
+        capture_curve_tangent.location = (0, 300)
+        capture_curve_tangent.capture_items.new("VECTOR", "Tangent")
+
+        curve_to_mesh_2 = self.create_node(node_tree, 'GeometryNodeCurveToMesh')
+        curve_to_mesh_2.location = (200, 300)
+
+        sample_nearest = self.create_node(node_tree, 'GeometryNodeSampleNearest')
+        sample_nearest.location = (400, 200)
+
+        sample_index = self.create_node(node_tree, 'GeometryNodeSampleIndex')
+        sample_index.location = (600, 300)
+        sample_index.data_type = "FLOAT_VECTOR"
+
+        distributePoint = self.create_node(node_tree, "GeometryNodeDistributePointsOnFaces")
+        distributePoint.inputs[4].default_value = 1000
+        distributePoint.location = (200, 0)
+
+        instanceOnPoint = self.create_node(node_tree, "GeometryNodeInstanceOnPoints")
+        instanceOnPoint.inputs["Scale"].default_value = (0.5, 0.3, 0.02)
+        instanceOnPoint.location = (1000, 0)
+
+        alignNormal = self.create_node(node_tree, "FunctionNodeAlignRotationToVector")
+        alignNormal.location = (500, 0)
+
+        align_tangent= self.create_node(node_tree, "FunctionNodeAlignRotationToVector")
+        align_tangent.location = (700, 0)
+        align_tangent.axis = "Y"
+        align_tangent.pivot_axis = "Z"
+
+
+        node_tree.links.new(group_input_1.outputs["Mesh"], distributePoint.inputs["Mesh"])
+        node_tree.links.new(group_input_1.outputs["Instance"], instanceOnPoint.inputs["Instance"])
+        node_tree.links.new(distributePoint.outputs["Points"], instanceOnPoint.inputs["Points"])
+        node_tree.links.new(distributePoint.outputs["Normal"], group_output.inputs["Normal"])
+        node_tree.links.new(distributePoint.outputs["Normal"], alignNormal.inputs["Vector"])
+        node_tree.links.new(alignNormal.outputs["Rotation"], align_tangent.inputs["Rotation"])
+        node_tree.links.new(align_tangent.outputs["Rotation"], instanceOnPoint.inputs["Rotation"])
+        node_tree.links.new(instanceOnPoint.outputs["Instances"], group_output.inputs["Instances"])
+        node_tree.links.new(group_input_2.outputs["Curve"], object_info.inputs["Object"])
+        node_tree.links.new(object_info.outputs["Geometry"], curve_to_mesh.inputs["Curve"])
+        node_tree.links.new(curve_to_mesh.outputs["Mesh"], mesh_to_curve.inputs["Mesh"])
+        node_tree.links.new(mesh_to_curve.outputs["Curve"], capture_curve_tangent.inputs["Geometry"])
+        node_tree.links.new(curve_tangent.outputs["Tangent"], capture_curve_tangent.inputs["Tangent"])
+        node_tree.links.new(capture_curve_tangent.outputs[0], curve_to_mesh_2.inputs["Curve"])
+        node_tree.links.new(capture_curve_tangent.outputs[1], sample_index.inputs["Value"])
+        node_tree.links.new(curve_to_mesh_2.outputs["Mesh"], sample_nearest.inputs["Geometry"])
+        node_tree.links.new(curve_to_mesh_2.outputs["Mesh"], sample_index.inputs["Geometry"])
+        node_tree.links.new(sample_nearest.outputs["Index"], sample_index.inputs["Index"])
+        node_tree.links.new(sample_index.outputs["Value"], align_tangent.inputs["Vector"])
+
+        return node_tree.name
     
-    def create_geometry_nodes(self, obj, brush_material, existing_img_texture):
+    def create_geometry_nodes(self, obj, tangent_group_name, bezier_curve, brush_material):
             
         node_tree = None
 
@@ -73,17 +162,15 @@ class ObjectPainterEffect(bpy.types.Operator):
         
         group_input = self.create_node(node_tree, 'NodeGroupInput')
         group_input.location = (0, 0)
-        
-        distributePoint = self.create_node(node_tree, "GeometryNodeDistributePointsOnFaces")
-        distributePoint.inputs[4].default_value = 1000
-        distributePoint.location = (200, 200)
-        
-        alignNormal = self.create_node(node_tree, "FunctionNodeAlignRotationToVector")
-        alignNormal.location = (400, 100)
-        
+
+        tangent_transfer = self.create_node(node_tree, "GeometryNodeGroup")
+        tangent_transfer.node_tree = bpy.data.node_groups[tangent_group_name]
+        tangent_transfer.inputs[2].default_value = bezier_curve
+        tangent_transfer.location = (400, 200)
+
         grid = self.create_node(node_tree, "GeometryNodeMeshGrid")
-        grid.inputs[0].default_value = 0.2
-        grid.inputs[1].default_value = 0.1
+        grid.inputs[0].default_value = 0.08
+        grid.inputs[1].default_value = 0.3
         grid.location = (200, -100)
         
         store_uv_map = self.create_node(node_tree, "GeometryNodeStoreNamedAttribute")
@@ -91,10 +178,6 @@ class ObjectPainterEffect(bpy.types.Operator):
         store_uv_map.data_type = 'FLOAT_VECTOR'
         store_uv_map.domain = "POINT" 
         store_uv_map.location = (400, -100)
-        
-        instanceOnPoint = self.create_node(node_tree, "GeometryNodeInstanceOnPoints")
-        instanceOnPoint.inputs["Scale"].default_value = (0.5, 0.3, 0.02)
-        instanceOnPoint.location = (600, 200)
         
         translateBrush = self.create_node(node_tree, "GeometryNodeTranslateInstances")
         translateBrush.location = (800, 200)
@@ -144,17 +227,11 @@ class ObjectPainterEffect(bpy.types.Operator):
         node_tree.interface.new_socket(name="Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
         node_tree.interface.new_socket(name="Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
         
-        node_tree.links.new(group_input.outputs["Geometry"], distributePoint.inputs["Mesh"])
-        # node_tree.links.new(group_input.outputs["Size X"], grid.inputs["Size X"])
-        # node_tree.links.new(group_input.outputs["Size Y"], grid.inputs["Size Y"])
-        node_tree.links.new(distributePoint.outputs["Points"], instanceOnPoint.inputs["Points"])
-        node_tree.links.new(distributePoint.outputs["Normal"], alignNormal.inputs["Vector"])
-        node_tree.links.new(alignNormal.outputs["Rotation"], instanceOnPoint.inputs["Rotation"])
+        node_tree.links.new(group_input.outputs["Geometry"], tangent_transfer.inputs["Mesh"])
         node_tree.links.new(grid.outputs["Mesh"], store_uv_map.inputs["Geometry"])
         node_tree.links.new(grid.outputs["UV Map"], store_uv_map.inputs["Value"])
-        node_tree.links.new(distributePoint.outputs["Points"], instanceOnPoint.inputs["Points"])
-        node_tree.links.new(store_uv_map.outputs["Geometry"], instanceOnPoint.inputs["Instance"])
-        node_tree.links.new(instanceOnPoint.outputs["Instances"], translateBrush.inputs["Instances"])
+        node_tree.links.new(store_uv_map.outputs["Geometry"], tangent_transfer.inputs["Instance"])
+        node_tree.links.new(tangent_transfer.outputs["Instances"], translateBrush.inputs["Instances"])
         node_tree.links.new(translateBrush.outputs["Instances"], store_normal.inputs["Geometry"])
         node_tree.links.new(random_value.outputs["Value"], store_random.inputs["Value"])
         node_tree.links.new(store_normal.outputs["Geometry"], store_random.inputs["Geometry"])
@@ -162,10 +239,9 @@ class ObjectPainterEffect(bpy.types.Operator):
         node_tree.links.new(set_material.outputs["Geometry"], joinGeometry.inputs["Geometry"])
 
         node_tree.links.new(group_input.outputs["Geometry"], joinGeometry.inputs["Geometry"])
-        # node_tree.links.new(group_input_material.outputs["Material"], set_material.inputs["Material"])
         node_tree.links.new(self_object.outputs["Self Object"], object_info.inputs["Object"])
         node_tree.links.new(object_info.outputs["Rotation"], vector_rotate.inputs["Rotation"])
-        node_tree.links.new(distributePoint.outputs["Normal"], vector_rotate.inputs["Vector"])
+        node_tree.links.new(tangent_transfer.outputs["Normal"], vector_rotate.inputs["Vector"])
         node_tree.links.new(vector_rotate.outputs["Vector"], store_normal.inputs["Value"])
         node_tree.links.new(joinGeometry.outputs["Geometry"], group_output.inputs["Geometry"])
 
@@ -332,11 +408,6 @@ class ObjectPainterEffect(bpy.types.Operator):
         return (material, default_img)
 
     
-    def create_tangent_tracer_group(self, obj, curves):
-        # TODO: create the geometry node group that changes the direction of the brush strokes to follow the tangent of the curves
-        pass
-        
-    
     # generate bezier curves on the surface of obj to guide the direction of brush strokes
     # NOTE: work in progress
     # TODO: reduce frequency of curves when mesh is very complicated
@@ -376,15 +447,16 @@ class ObjectPainterEffect(bpy.types.Operator):
         print("spline points:", spline_points)
         crv = bpy.data.curves.new('crv', 'CURVE')
         crv.dimensions = '3D'
-        for points in spline_points:
-            spline = self.create_spline_from_points(bm, crv, points)
+        sampling = math.ceil(len(spline_points) / TARGET_LINE_NUMBER)
+        for i in range(0, len(spline_points), sampling):
+            spline = self.create_spline_from_points(bm, crv, spline_points[i])
         # spline = self.create_spline_from_points(bm, crv, verts_on_edge_loop)
         new_bezier = bpy.data.objects.new('Bezier', crv)
         new_bezier.parent = obj
         context.collection.objects.link(new_bezier)
 
-        modifier = new_bezier.modifiers.new(name="Shrinkwrap", type='SHRINKWRAP')
-        modifier.target = obj
+        # modifier = new_bezier.modifiers.new(name="Shrinkwrap", type='SHRINKWRAP')
+        # modifier.target = obj
 
         return new_bezier
 
