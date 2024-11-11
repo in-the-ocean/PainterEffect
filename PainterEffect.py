@@ -17,7 +17,7 @@ ATTRIBUTE_UVMAP = "brushUV"
 ATTRIBUTE_RANDOM = "random"
 ATTRIBUTE_NORMAL = "normal"
 
-TARGET_LINE_NUMBER = 30
+TARGET_LINE_NUMBER = 50
 
 
 class ObjectPainterEffect(bpy.types.Operator):
@@ -169,8 +169,8 @@ class ObjectPainterEffect(bpy.types.Operator):
         tangent_transfer.location = (400, 200)
 
         grid = self.create_node(node_tree, "GeometryNodeMeshGrid")
-        grid.inputs[0].default_value = 0.08
-        grid.inputs[1].default_value = 0.3
+        grid.inputs[0].default_value = 0.1
+        grid.inputs[1].default_value = 0.5
         grid.location = (200, -100)
         
         store_uv_map = self.create_node(node_tree, "GeometryNodeStoreNamedAttribute")
@@ -269,6 +269,8 @@ class ObjectPainterEffect(bpy.types.Operator):
         if material is None:
             material = bpy.data.materials.new(name=SHADER_NAME)
             obj.data.materials.append(material)
+
+        material.surface_render_method = "BLENDED"
 
         # Check if the material uses nodes
         if not material.use_nodes:
@@ -447,8 +449,8 @@ class ObjectPainterEffect(bpy.types.Operator):
         print("spline points:", spline_points)
         crv = bpy.data.curves.new('crv', 'CURVE')
         crv.dimensions = '3D'
-        sampling = math.ceil(len(spline_points) / TARGET_LINE_NUMBER)
-        for i in range(0, len(spline_points), sampling):
+        sampling = math.floor(len(spline_points) / TARGET_LINE_NUMBER)
+        for i in range(0, len(spline_points), max(sampling, 1)):
             spline = self.create_spline_from_points(bm, crv, spline_points[i])
         # spline = self.create_spline_from_points(bm, crv, verts_on_edge_loop)
         new_bezier = bpy.data.objects.new('Bezier', crv)
