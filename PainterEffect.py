@@ -37,15 +37,19 @@ class ObjectPainterEffect(bpy.types.Operator):
 
     def execute(self, context):
         obj = context.active_object
+        if obj is None:
+            print("No active object in the scene.")
+            return {'CANCELLED'}
+
         curves = self.generate_surface_curves(obj, context)
-        tangent_group_name = self.create_tangent_tracer_group()
+        tangent_group_name = self.create_tangent_tracer_group(obj)
     
         brush_material, existing_img_texture = self.create_shader(obj)
         self.create_geometry_nodes(obj, tangent_group_name, curves, brush_material)
 
         return {'FINISHED'}
 
-    def create_tangent_tracer_group(self):
+    def create_tangent_tracer_group(self, obj):
         node_tree = bpy.data.node_groups.new(CURVE_TANGENT_NAME, 'GeometryNodeTree')
 
         node_tree.interface.new_socket(name="Mesh", in_out="INPUT", socket_type="NodeSocketGeometry")
@@ -75,7 +79,6 @@ class ObjectPainterEffect(bpy.types.Operator):
 
         curve_tangent = self.create_node(node_tree, 'GeometryNodeInputTangent')
         curve_tangent.location = (-200, 400)
-        print(curve_tangent.outputs["Tangent"])
 
         capture_curve_tangent = self.create_node(node_tree, 'GeometryNodeCaptureAttribute')
         capture_curve_tangent.location = (0, 300)
@@ -92,7 +95,7 @@ class ObjectPainterEffect(bpy.types.Operator):
         sample_index.data_type = "FLOAT_VECTOR"
 
         distributePoint = self.create_node(node_tree, "GeometryNodeDistributePointsOnFaces")
-        distributePoint.inputs[4].default_value = 1000
+        distributePoint.inputs[4].default_value = self.get_default_density(obj)
         distributePoint.location = (200, 0)
 
         instanceOnPoint = self.create_node(node_tree, "GeometryNodeInstanceOnPoints")
@@ -169,8 +172,7 @@ class ObjectPainterEffect(bpy.types.Operator):
         tangent_transfer.location = (400, 200)
 
         grid = self.create_node(node_tree, "GeometryNodeMeshGrid")
-        grid.inputs[0].default_value = 0.1
-        grid.inputs[1].default_value = 0.5
+        grid.inputs[0].default_value, grid.inputs[1].default_value = self.get_default_grid_size(obj)
         grid.location = (200, -100)
         
         store_uv_map = self.create_node(node_tree, "GeometryNodeStoreNamedAttribute")
@@ -181,7 +183,7 @@ class ObjectPainterEffect(bpy.types.Operator):
         
         translateBrush = self.create_node(node_tree, "GeometryNodeTranslateInstances")
         translateBrush.location = (800, 200)
-        translateBrush.inputs['Translation'].default_value[2] = 0.02
+        translateBrush.inputs['Translation'].default_value[2] = self.get_default_translate_z(obj)
         
         store_normal = self.create_node(node_tree, "GeometryNodeStoreNamedAttribute")
         store_normal.inputs["Name"].default_value = ATTRIBUTE_NORMAL
@@ -251,6 +253,10 @@ class ObjectPainterEffect(bpy.types.Operator):
             if m.name.startswith(SHADER_NAME):
                 return (m, None)
 
+        if material is None:
+            material = bpy.data.materials.new(name=SHADER_NAME)
+            obj.data.materials.append(material)
+
         existing_material = obj.active_material
         default_img = None
         default_color = None
@@ -266,9 +272,6 @@ class ObjectPainterEffect(bpy.types.Operator):
             else:
                 default_color = base_color.default_value
         
-        if material is None:
-            material = bpy.data.materials.new(name=SHADER_NAME)
-            obj.data.materials.append(material)
 
         material.surface_render_method = "BLENDED"
 
@@ -373,9 +376,17 @@ class ObjectPainterEffect(bpy.types.Operator):
         mix_float.location = (500, -400)
         
         principled_bsdf = node_tree.nodes.new(type='ShaderNodeBsdfPrincipled')
-        principled_bsdf.inputs['Metallic'].default_value = 0.387
-        principled_bsdf.inputs['Roughness'].default_value = 0.573 
-        principled_bsdf.inputs['IOR'].default_value = 1.5  
+        if existing_material is not None:
+            nodes = existing_material.node_tree.nodes
+            principled = next(n for n in nodes if n.type == 'BSDF_PRINCIPLED')
+            principled_bsdf.inputs['Metallic'].default_value = principled.inputs['Metallic'].default_value
+            principled_bsdf.inputs['Roughness'].default_value = principled.inputs['Roughness'].default_value
+            principled_bsdf.inputs['IOR'].default_value = principled.inputs['IOR'].default_value
+        else:
+            principled_bsdf.inputs['Metallic'].default_value = 0.387
+            principled_bsdf.inputs['Roughness'].default_value = 0.573 
+            principled_bsdf.inputs['IOR'].default_value = 1.5  
+            
         principled_bsdf.location = (700, -400)
         
         material_output = node_tree.nodes.new(type='ShaderNodeOutputMaterial')
@@ -411,7 +422,6 @@ class ObjectPainterEffect(bpy.types.Operator):
 
     
     # generate bezier curves on the surface of obj to guide the direction of brush strokes
-    # NOTE: work in progress
     # TODO: reduce frequency of curves when mesh is very complicated
     def generate_surface_curves(self, obj, context):
         bm = bmesh.new()   # create an empty BMesh
@@ -445,8 +455,8 @@ class ObjectPainterEffect(bpy.types.Operator):
             expanded_edge.add(top)
 
 
-        print('first loop:', initial_loops)
-        print("spline points:", spline_points)
+        # print('first loop:', initial_loops)
+        # print("spline points:", spline_points)
         crv = bpy.data.curves.new('crv', 'CURVE')
         crv.dimensions = '3D'
         sampling = math.floor(len(spline_points) / TARGET_LINE_NUMBER)
@@ -461,6 +471,22 @@ class ObjectPainterEffect(bpy.types.Operator):
         # modifier.target = obj
 
         return new_bezier
+
+    def get_default_density(self, obj):
+        min_extent = self.get_obj_size(obj)
+        return 1500 / min_extent**2
+
+    def get_default_grid_size(self, obj):
+        min_extent = self.get_obj_size(obj)
+        return (min_extent / 15, min_extent / 3)
+
+    def get_default_translate_z(self, obj):
+        min_extent = self.get_obj_size(obj)
+        return min_extent / 10
+
+    def get_obj_size(self, obj):
+        dims = obj.dimensions
+        return (dims.x + dims.y + dims.z) / 3
 
     # Find the initial loops to render
     # if there are full cycles, return all the full cycles
@@ -506,7 +532,7 @@ class ObjectPainterEffect(bpy.types.Operator):
 
             # If this is true then we've looped back to the beginning and are done
             if next_loop == first_loop:
-                print("found loop")
+                # print("found loop")
                 verts_on_loop.append(next_loop.vert.index)
                 break
 
