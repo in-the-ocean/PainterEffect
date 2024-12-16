@@ -28,6 +28,7 @@ class ObjectPainterEffect(bpy.types.Operator):
     node_x_location = 0
 
 
+
     def create_node(self, node_tree, type_name, node_location_step_x=300):
         node_obj = node_tree.nodes.new(type=type_name)
         node_obj.location.x = self.node_x_location
@@ -55,11 +56,13 @@ class ObjectPainterEffect(bpy.types.Operator):
         node_tree.interface.new_socket(name="Mesh", in_out="INPUT", socket_type="NodeSocketGeometry")
         node_tree.interface.new_socket(name="Instance", in_out="INPUT", socket_type="NodeSocketGeometry")
         node_tree.interface.new_socket(name="Curve", in_out="INPUT", socket_type="NodeSocketObject")
+        node_tree.interface.new_socket(name="Density", in_out="INPUT", socket_type="NodeSocketFloat")
+        node_tree.interface.new_socket(name="Scale", in_out="INPUT", socket_type="NodeSocketFloat")
         node_tree.interface.new_socket(name="Normal", in_out="OUTPUT", socket_type="NodeSocketVector")
         node_tree.interface.new_socket(name="Instances", in_out="OUTPUT", socket_type="NodeSocketGeometry")
 
         group_input_1 = self.create_node(node_tree, 'NodeGroupInput')
-        group_input_1.location = (0, 0)
+        group_input_1.location = (-200, 0)
 
         group_input_2 = self.create_node(node_tree, 'NodeGroupInput')
         group_input_2.location = (-800, 300)
@@ -94,12 +97,47 @@ class ObjectPainterEffect(bpy.types.Operator):
         sample_index.location = (600, 300)
         sample_index.data_type = "FLOAT_VECTOR"
 
+        default_density = self.create_node(node_tree, 'ShaderNodeValue')
+        default_density.label= "Default Density"
+        default_density.outputs[0].default_value = self.get_default_density(obj)
+        default_density.location = (-200,-300)
+
+        adjusted_density = self.create_node(node_tree, 'ShaderNodeMath')
+        adjusted_density.label= "Adjusted Density"
+        adjusted_density.operation= 'MULTIPLY'
+        adjusted_density.location = (0,-300)
+
+        calculated_size_1 = self.create_node(node_tree, 'ShaderNodeMath')
+        calculated_size_1.operation= 'DIVIDE'
+        calculated_size_1.inputs[0].default_value= 1
+        calculated_size_1.location = (0,-500)
+
+        calculated_size_2 = self.create_node(node_tree, 'ShaderNodeMath')
+        calculated_size_2.operation= 'SQRT'
+        calculated_size_2.location = (0,-700)
+
+        default_size= self.create_node(node_tree, 'FunctionNodeInputVector')
+        default_size.location=  (200,-300)
+        default_size.label= "Default Size"
+        default_size.vector= (0.6,0.36,0.0)
+
+        size_multiplier= self.create_node(node_tree, 'ShaderNodeCombineXYZ')
+        size_multiplier.location= (200,-500)
+
+        scaled_size = self.create_node(node_tree, 'ShaderNodeVectorMath')
+        scaled_size.operation = 'MULTIPLY'
+        scaled_size.location = (500,-200)
+
+        adjusted_size= self.create_node(node_tree, 'ShaderNodeVectorMath')
+        adjusted_size.operation = 'MULTIPLY_ADD'
+        adjusted_size.inputs[2].default_value[2]=0.05
+        adjusted_size.label= "Adjusted Size"
+        adjusted_size.location = (700,-200)
+
         distributePoint = self.create_node(node_tree, "GeometryNodeDistributePointsOnFaces")
-        distributePoint.inputs[4].default_value = self.get_default_density(obj)
         distributePoint.location = (200, 0)
 
         instanceOnPoint = self.create_node(node_tree, "GeometryNodeInstanceOnPoints")
-        instanceOnPoint.inputs["Scale"].default_value = (0.5, 0.3, 0.02)
         instanceOnPoint.location = (1000, 0)
 
         alignNormal = self.create_node(node_tree, "FunctionNodeAlignRotationToVector")
@@ -109,6 +147,7 @@ class ObjectPainterEffect(bpy.types.Operator):
         align_tangent.location = (700, 0)
         align_tangent.axis = "Y"
         align_tangent.pivot_axis = "Z"
+
 
 
         node_tree.links.new(group_input_1.outputs["Mesh"], distributePoint.inputs["Mesh"])
@@ -130,6 +169,20 @@ class ObjectPainterEffect(bpy.types.Operator):
         node_tree.links.new(curve_to_mesh_2.outputs["Mesh"], sample_index.inputs["Geometry"])
         node_tree.links.new(sample_nearest.outputs["Index"], sample_index.inputs["Index"])
         node_tree.links.new(sample_index.outputs["Value"], align_tangent.inputs["Vector"])
+        
+        node_tree.links.new(default_density.outputs["Value"], adjusted_density.inputs[0])
+        node_tree.links.new(group_input_1.outputs["Density"], adjusted_density.inputs[1])
+        node_tree.links.new(adjusted_density.outputs["Value"], distributePoint.inputs["Density"])
+        node_tree.links.new(group_input_1.outputs["Density"], calculated_size_1.inputs[1])
+        node_tree.links.new(calculated_size_1.outputs["Value"], calculated_size_2.inputs["Value"])
+        node_tree.links.new(calculated_size_2.outputs["Value"], size_multiplier.inputs["X"])
+        node_tree.links.new(calculated_size_2.outputs["Value"], size_multiplier.inputs["Y"])
+        node_tree.links.new(calculated_size_2.outputs["Value"], size_multiplier.inputs["Z"])
+        node_tree.links.new(default_size.outputs["Vector"], scaled_size.inputs[0])
+        node_tree.links.new(group_input_1.outputs["Scale"], scaled_size.inputs[1])
+        node_tree.links.new(scaled_size.outputs["Vector"], adjusted_size.inputs[0])
+        node_tree.links.new(size_multiplier.outputs["Vector"], adjusted_size.inputs[1])
+        node_tree.links.new(adjusted_size.outputs["Vector"], instanceOnPoint.inputs["Scale"])
 
         return node_tree.name
     
@@ -157,14 +210,58 @@ class ObjectPainterEffect(bpy.types.Operator):
             return 
         node_tree.nodes.clear()
 
-#        size_x_socket = node_tree.interface.new_socket(name='Size X', socket_type='NodeSocketFloat')
-#        size_y_socket = node_tree.interface.new_socket(name='Size Y', socket_type='NodeSocketFloat')
-#        density_socket = node_tree.interface.new_socket(name='Density', socket_type='NodeSocketFloat')
-#        rotate_socket = node_tree.interface.new_socket(name='Rotate By', socket_type='NodeSocketVector')
-#        material_socket = node_tree.interface.new_socket(name='Material', socket_type='NodeSocketMaterial')
-        
+   
         group_input = self.create_node(node_tree, 'NodeGroupInput')
         group_input.location = (0, 0)
+
+        brush_panel = node_tree.interface.new_panel(name = "Brush Parameters")
+        brush_density = node_tree.interface.new_socket(name="Density", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = brush_panel)
+        obj.modifiers["GeometryNodes"]["Socket_1"]= 1.0
+        brush_density.min_value = 0.0
+        brush_density.max_value = 10.0
+        brush_scale_X = node_tree.interface.new_socket(name="Scale: X", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = brush_panel)
+        obj.modifiers["GeometryNodes"]["Socket_2"]= 1.0
+        brush_scale_X.min_value = 0.0
+        brush_scale_X.max_value = 10.0
+        brush_scale_Y = node_tree.interface.new_socket(name="Scale: Y", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = brush_panel)
+        obj.modifiers["GeometryNodes"]["Socket_3"]= 1.0
+        brush_scale_Y.min_value = 0.0
+        brush_scale_Y.max_value = 10.0
+        brush_scale_Z = node_tree.interface.new_socket(name="Scale: Z", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = brush_panel)
+        brush_scale_Z.default_value = 1.0
+        brush_scale_Z.hide_in_modifier= True
+        
+        color_value_panel = node_tree.interface.new_panel(name = "Color Value")
+        hue_value = node_tree.interface.new_socket(name="Hue", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_value_panel)
+        obj.modifiers["GeometryNodes"]["Socket_6"]=0.0
+        hue_value.min_value = -10.0
+        hue_value.max_value = 10.0
+        saturation_value = node_tree.interface.new_socket(name="Saturation",in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_value_panel)
+        obj.modifiers["GeometryNodes"]["Socket_7"]=0.0
+        saturation_value.min_value = -10.0
+        saturation_value.max_value = 10.0
+        brightness_value = node_tree.interface.new_socket(name="Brightness", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_value_panel)
+        obj.modifiers["GeometryNodes"]["Socket_8"]=0.0
+        brightness_value.min_value = -10.0
+        brightness_value.max_value = 10.0
+
+        color_randomness_panel = node_tree.interface.new_panel(name = "Color Randomness")
+        hue_randomness = node_tree.interface.new_socket(name="Hue", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_randomness_panel)
+        obj.modifiers["GeometryNodes"]["Socket_10"]=1.0
+        hue_randomness.min_value = 0.0
+        hue_randomness.max_value = 10.0
+        saturation_randomness = node_tree.interface.new_socket(name="Saturation",in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_randomness_panel)
+        obj.modifiers["GeometryNodes"]["Socket_11"]=1.0
+        saturation_randomness.min_value = 0.0
+        saturation_randomness.max_value = 10.0
+        brightness_randomness = node_tree.interface.new_socket(name="Brightness", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_randomness_panel)
+        obj.modifiers["GeometryNodes"]["Socket_12"]=1.0
+        brightness_randomness.min_value = 0.0
+        brightness_randomness.max_value = 10.0
+
+        brush_scale = self.create_node(node_tree, "ShaderNodeCombineXYZ")
+        brush_scale.label = "Brush Scale"
+        brush_scale.location = (200,200)
 
         tangent_transfer = self.create_node(node_tree, "GeometryNodeGroup")
         tangent_transfer.node_tree = bpy.data.node_groups[tangent_group_name]
@@ -190,13 +287,30 @@ class ObjectPainterEffect(bpy.types.Operator):
         store_normal.data_type = 'FLOAT_VECTOR'
         store_normal.domain = "INSTANCE" 
         store_normal.location = (1000, 0)
+
+        color_value = self.create_node(node_tree, "ShaderNodeCombineXYZ")
+        color_value.label = "Color Value"
+        color_value.location = (800,700)
         
+        color_randomness = self.create_node(node_tree, "ShaderNodeCombineXYZ")
+        color_randomness.label = "Color Randomness"
+        color_randomness.location = (800,500)
+
+        color_subtract = self.create_node(node_tree, "ShaderNodeMath")
+        color_subtract.label = "Color Substract"
+        color_subtract.operation= 'SUBTRACT'
+        color_subtract.location = (1000,700)
+
+        color_add = self.create_node(node_tree, "ShaderNodeMath")
+        color_add.label = "Color Add"
+        color_add.location = (1000,500)
+
         random_value = self.create_node(node_tree, "FunctionNodeRandomValue")
         random_value.data_type = 'FLOAT_VECTOR'
-        random_value.inputs['Min'].default_value = (-1.0, -1.0, -1.0) 
-        random_value.inputs['Max'].default_value = (1.0, 1.0, 1.0) 
-        random_value.location = (1000, 400)
-        
+        random_value.label = "Color Adjustment Node"
+        random_value.data_type = 'FLOAT_VECTOR'
+        random_value.location = (1000, 300)
+                
         store_random = self.create_node(node_tree, "GeometryNodeStoreNamedAttribute")
         store_random.inputs["Name"].default_value = ATTRIBUTE_RANDOM
         store_random.data_type = 'FLOAT_VECTOR'
@@ -209,9 +323,6 @@ class ObjectPainterEffect(bpy.types.Operator):
         set_material = self.create_node(node_tree, "GeometryNodeSetMaterial")
         set_material.location = (1400, 0)
         set_material.inputs[2].default_value = brush_material
-        
-        group_input_material = self.create_node(node_tree, "NodeGroupInput")
-        group_input_material.location = (1200, -200)
         
         self_object = self.create_node(node_tree, 'GeometryNodeSelfObject')
         self_object.location = (200, 500)
@@ -230,6 +341,23 @@ class ObjectPainterEffect(bpy.types.Operator):
         node_tree.interface.new_socket(name="Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
         
         node_tree.links.new(group_input.outputs["Geometry"], tangent_transfer.inputs["Mesh"])
+        node_tree.links.new(group_input.outputs["Density"],tangent_transfer.inputs["Density"])
+        node_tree.links.new(group_input.outputs["Scale: X"], brush_scale.inputs["X"])
+        node_tree.links.new(group_input.outputs["Scale: Y"], brush_scale.inputs["Y"])
+        node_tree.links.new(group_input.outputs["Scale: Z"], brush_scale.inputs["Z"])
+        node_tree.links.new(brush_scale.outputs["Vector"],tangent_transfer.inputs["Scale"])
+        node_tree.links.new(group_input.outputs[5], color_value.inputs["X"])
+        node_tree.links.new(group_input.outputs[6], color_value.inputs["Y"])
+        node_tree.links.new(group_input.outputs[7], color_value.inputs["Z"])
+        node_tree.links.new(group_input.outputs[8], color_randomness.inputs["X"])
+        node_tree.links.new(group_input.outputs[9], color_randomness.inputs["Y"])
+        node_tree.links.new(group_input.outputs[10], color_randomness.inputs["Z"])
+        node_tree.links.new(color_value.outputs["Vector"], color_subtract.inputs[0])
+        node_tree.links.new(color_randomness.outputs["Vector"], color_subtract.inputs[1])
+        node_tree.links.new(color_value.outputs["Vector"], color_add.inputs[0])
+        node_tree.links.new(color_randomness.outputs["Vector"], color_add.inputs[1])
+        node_tree.links.new(color_subtract.outputs["Value"], random_value.inputs["Min"])
+        node_tree.links.new(color_add.outputs["Value"], random_value.inputs["Max"])
         node_tree.links.new(grid.outputs["Mesh"], store_uv_map.inputs["Geometry"])
         node_tree.links.new(grid.outputs["UV Map"], store_uv_map.inputs["Value"])
         node_tree.links.new(store_uv_map.outputs["Geometry"], tangent_transfer.inputs["Instance"])
@@ -594,20 +722,44 @@ class ObjectPainterEffect(bpy.types.Operator):
             p.handle_left_type = "AUTO"
             p.handle_right_type = "AUTO"
         return spline
+    
 
-          
+class ObjectPainterEffect_Panel(bpy.types.Panel):
+    bl_label = "Painter Effect Tools"
+    bl_idname = "painter_effect_panel"
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = "object"
+
+    def draw(self, context):
+        layout = self.layout
+        object = context.object
+
+        if object is None:
+            layout.label(text="No active object selected")
+            return
+
+        layout.operator("object.painter_effect", text= "Apply Painter Effect")
+
+
+
 
 def menu_func(self, context):
     self.layout.operator(ObjectPainterEffect.bl_idname)
 
+
+
 def register():
-    bpy.utils.register_class(ObjectPainterEffect)
-    bpy.types.VIEW3D_MT_object.append(menu_func)
-
+        bpy.types.VIEW3D_MT_object.append(menu_func)
+        bpy.utils.register_class(ObjectPainterEffect)
+        bpy.utils.register_class(ObjectPainterEffect_Panel)
+        
+       
 def unregister():
-    bpy.utils.unregister_class(ObjectPainterEffect)
     bpy.types.VIEW3D_MT_object.remove(menu_func)
-
+    bpy.utils.unregister_class(ObjectPainterEffect)
+    bpy.utils.unregister_class(ObjectPainterEffect_Panel)
+    
 
 if __name__ == "__main__":
     register()
