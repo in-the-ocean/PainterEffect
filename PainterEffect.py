@@ -381,14 +381,11 @@ class ObjectPainterEffect(bpy.types.Operator):
             if m.name.startswith(SHADER_NAME):
                 return (m, None)
 
-        if material is None:
-            material = bpy.data.materials.new(name=SHADER_NAME)
-            obj.data.materials.append(material)
 
         existing_material = obj.active_material
         default_img = None
-        default_color = None
-        if existing_material is not None:
+        default_color = (0.506, 0.8, 0.192, 1)
+        if existing_material is not None and existing_material.node_tree is not None:
             nodes = existing_material.node_tree.nodes
             principled = next(n for n in nodes if n.type == 'BSDF_PRINCIPLED')
             base_color = principled.inputs['Base Color']
@@ -399,8 +396,20 @@ class ObjectPainterEffect(bpy.types.Operator):
                     default_img = from_node.image
             else:
                 default_color = base_color.default_value
-        
+        else:
+            existing_material = bpy.data.materials.new(name="Material")
+            existing_material.use_nodes = True
 
+            # Get the Principled BSDF node 
+            bsdf = existing_material.node_tree.nodes.get('Principled BSDF')
+
+            # Set the base color of the material 
+            bsdf.inputs['Base Color'].default_value = default_color
+            obj.data.materials.append(existing_material)
+            obj.active_material = existing_material
+
+        material = bpy.data.materials.new(name=SHADER_NAME)
+        obj.data.materials.append(material)
         material.surface_render_method = "BLENDED"
 
         # Check if the material uses nodes
@@ -484,6 +493,7 @@ class ObjectPainterEffect(bpy.types.Operator):
         blend_file_directory = os.path.dirname(bpy.data.filepath)
         image_path = os.path.join(blend_file_directory, "stroke.png")
 
+        print(bpy.data.filepath, blend_file_directory, image_path)
         if os.path.exists(image_path):
             image = bpy.data.images.load(image_path)
             brush_texture.image = image
@@ -504,7 +514,7 @@ class ObjectPainterEffect(bpy.types.Operator):
         mix_float.location = (500, -400)
         
         principled_bsdf = node_tree.nodes.new(type='ShaderNodeBsdfPrincipled')
-        if existing_material is not None:
+        if existing_material is not None and existing_material.node_tree is not None:
             nodes = existing_material.node_tree.nodes
             principled = next(n for n in nodes if n.type == 'BSDF_PRINCIPLED')
             principled_bsdf.inputs['Metallic'].default_value = principled.inputs['Metallic'].default_value
