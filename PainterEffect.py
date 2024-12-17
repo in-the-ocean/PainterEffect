@@ -9,6 +9,7 @@ import bpy
 import bmesh
 import math
 import os
+import random
 
 SHADER_NAME = "painter_brush_material"
 GEOMETRY_NAME = "painter_effect_geometry"
@@ -588,14 +589,30 @@ class ObjectPainterEffect(bpy.types.Operator):
             existing_texture_node.location = (0, -400)
             
         blend_file_directory = os.path.dirname(bpy.data.filepath)
-        image_path = os.path.join(blend_file_directory, stroke_style)
+        stroke_images = []
+
+        for file in os.listdir(blend_file_directory):
+            if file.lower().endswith('.png') and file.startswith(stroke_style):
+                stroke_images.append(file)
+
+        if not stroke_images:
+            self.report({'ERROR'}, f"No images found with prefix: {stroke_style}")
+            return material, None
+        self.report({'INFO'}, f"images are {stroke_images}")
+        
+        selected_image_file = random.choice(stroke_images)
+        self.report({'INFO'}, f"the selected file is {selected_image_file}")
+        image_path = os.path.join(blend_file_directory, selected_image_file)
 
         if os.path.exists(image_path):
-            image_name = os.path.basename(image_path)
-            if image_name in bpy.data.images:
-                image = bpy.data.images[image_name]
+            if selected_image_file in bpy.data.images:
+                image = bpy.data.images[selected_image_file]
             else:
                 image = bpy.data.images.load(image_path)
+
+            if existing_texture_node is None:
+                existing_texture_node = material.node_tree.nodes.new(type="ShaderNodeTexImage")
+                existing_texture_node.location = (0, -400)
 
             existing_texture_node.image = image
             existing_texture_node.interpolation = 'Smart'
@@ -604,7 +621,7 @@ class ObjectPainterEffect(bpy.types.Operator):
 
             bpy.context.view_layer.update()
         else:
-            self.report({'ERROR'}, f"Cannot find image file: {stroke_style}")
+            self.report({'ERROR'}, f"Cannot find image file: {selected_image_file}")
 
         return (material, existing_texture_node.image if existing_texture_node else None)
 
@@ -830,10 +847,18 @@ def menu_func(self, context):
 def load_stroke_images_callback(self, context):
     image_dir = os.path.dirname(bpy.data.filepath)
     images = []
+
     if os.path.exists(image_dir):
+        stroke_prefixes = set()
         for file in os.listdir(image_dir):
             if file.lower().endswith('.png'):
-                images.append((file, file, f"Use {file} as stroke style"))
+                base_name = file.split('.')[0]
+                prefix = base_name.split('_')[0]
+                stroke_prefixes.add(prefix)
+
+        for prefix in stroke_prefixes:
+            images.append((prefix, prefix, f"Use {prefix} as stroke style"))
+
     if not images:
         images.append(("None", "None", "No images found"))
     
