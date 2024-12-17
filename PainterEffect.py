@@ -224,7 +224,7 @@ class ObjectPainterEffect(bpy.types.Operator):
         node_tree.links.new(curvature_length.outputs["Value"], map_range.inputs["Value"])
         node_tree.links.new(map_range.outputs["Result"], multiply_scale.inputs[1])
         node_tree.links.new(group_input_1.outputs["Scale"], multiply_scale.inputs[0])
-        node_tree.links.new(multiply_scale.outputs["Vector"], instanceOnPoint.inputs["Scale"])
+        # node_tree.links.new(multiply_scale.outputs["Vector"], instanceOnPoint.inputs["Scale"])
 
         return node_tree.name
 
@@ -458,8 +458,8 @@ class ObjectPainterEffect(bpy.types.Operator):
         if material is None: 
             material = bpy.data.materials.new(name=SHADER_NAME)
             obj.data.materials.append(material)
-            obj.active_material = material
             material.use_nodes = True
+            material.surface_render_method = "BLENDED"
             node_tree = material.node_tree
             node_tree.nodes.clear()
 
