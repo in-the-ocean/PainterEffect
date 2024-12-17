@@ -64,7 +64,7 @@ class ObjectPainterEffect(bpy.types.Operator):
         node_tree.interface.new_socket(name="Instance", in_out="INPUT", socket_type="NodeSocketGeometry")
         node_tree.interface.new_socket(name="Curve", in_out="INPUT", socket_type="NodeSocketObject")
         node_tree.interface.new_socket(name="Density", in_out="INPUT", socket_type="NodeSocketFloat")
-        node_tree.interface.new_socket(name="Scale", in_out="INPUT", socket_type="NodeSocketFloat")
+        node_tree.interface.new_socket(name="Scale", in_out="INPUT", socket_type="NodeSocketVector")
         node_tree.interface.new_socket(name="Normal", in_out="OUTPUT", socket_type="NodeSocketVector")
         node_tree.interface.new_socket(name="Instances", in_out="OUTPUT", socket_type="NodeSocketGeometry")
 
@@ -459,7 +459,7 @@ class ObjectPainterEffect(bpy.types.Operator):
             material = bpy.data.materials.new(name=SHADER_NAME)
             obj.data.materials.append(material)
             material.use_nodes = True
-            material.surface_render_method = "BLENDED"
+            # material.surface_render_method = "BLENDED"
             node_tree = material.node_tree
             node_tree.nodes.clear()
 
@@ -619,11 +619,17 @@ class ObjectPainterEffect(bpy.types.Operator):
         bm.verts.ensure_lookup_table()
         bm.edges.ensure_lookup_table()
 
+        crv = bpy.data.curves.new('crv', 'CURVE')
+        crv.dimensions = '3D'
+        new_bezier = bpy.data.objects.new('Bezier', crv)
+        new_bezier.parent = obj
+        context.collection.objects.link(new_bezier)
+
         # selected_edges = [ e for e in bm.edges if e.select ]
         # verts_on_edge_loop = self.find_edge_loops(selected_edges[0], set(), [])
         initial_loops = self.find_first_loop(bm)
         if initial_loops is None: # couldn't find any valid loops
-            return None
+            return new_bezier
         spline_points = []
         visited_edge = set() # searched for edge loop
         expanded_edge = set() # expanded to neighbors
@@ -647,15 +653,10 @@ class ObjectPainterEffect(bpy.types.Operator):
 
         # print('first loop:', initial_loops)
         # print("spline points:", spline_points)
-        crv = bpy.data.curves.new('crv', 'CURVE')
-        crv.dimensions = '3D'
         sampling = math.floor(len(spline_points) / TARGET_LINE_NUMBER)
         for i in range(0, len(spline_points), max(sampling, 1)):
             spline = self.create_spline_from_points(bm, crv, spline_points[i])
         # spline = self.create_spline_from_points(bm, crv, verts_on_edge_loop)
-        new_bezier = bpy.data.objects.new('Bezier', crv)
-        new_bezier.parent = obj
-        context.collection.objects.link(new_bezier)
 
         # modifier = new_bezier.modifiers.new(name="Shrinkwrap", type='SHRINKWRAP')
         # modifier.target = obj
