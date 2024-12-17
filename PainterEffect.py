@@ -39,11 +39,21 @@ class ObjectPainterEffect(bpy.types.Operator):
 
 
     def execute(self, context):
-        obj = context.active_object
-        if obj is None:
+        objs = context.selected_objects
+        if objs is None:
             print("No active object in the scene.")
             return {'CANCELLED'}
         
+        for obj in objs:
+            self.apply_painter_effect(context, obj)
+
+        return {'FINISHED'}
+
+
+    def apply_painter_effect(self, context, obj):
+        if obj.type != 'MESH':
+            print("Object is not a mesh.")
+            return
         stroke_style = context.scene.stroke_style
         print(stroke_style)
 
@@ -52,9 +62,8 @@ class ObjectPainterEffect(bpy.types.Operator):
     
         brush_material, existing_img_texture = self.create_shader(obj, stroke_style)
         self.create_geometry_nodes(obj, tangent_group_name, curves, brush_material)
-
-        return {'FINISHED'}
-
+        for child in obj.children:
+            self.apply_painter_effect(context, child)
 
 
     def create_tangent_tracer_group(self, obj):
@@ -685,7 +694,8 @@ class ObjectPainterEffect(bpy.types.Operator):
 
     def get_obj_size(self, obj):
         dims = obj.dimensions
-        return (dims.x + dims.y + dims.z) / 3
+        scale = obj.scale
+        return max(dims.x / scale[0], dims.y / scale[1], dims.z / scale[2])
 
 
 
