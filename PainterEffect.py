@@ -20,14 +20,14 @@ ATTRIBUTE_NORMAL = "normal"
 TARGET_LINE_NUMBER = 50
 
 
+    
 class ObjectPainterEffect(bpy.types.Operator):
     """Object Cursor Array"""
     bl_idname = "object.painter_effect"
     bl_label = "Painter Effect"
     bl_options = {'REGISTER', 'UNDO'}
     node_x_location = 0
-
-
+    
 
     def create_node(self, node_tree, type_name, node_location_step_x=300):
         node_obj = node_tree.nodes.new(type=type_name)
@@ -36,19 +36,26 @@ class ObjectPainterEffect(bpy.types.Operator):
 
         return node_obj
 
+
+
     def execute(self, context):
         obj = context.active_object
         if obj is None:
             print("No active object in the scene.")
             return {'CANCELLED'}
+        
+        stroke_style = context.scene.stroke_style
+        print(stroke_style)
 
         curves = self.generate_surface_curves(obj, context)
         tangent_group_name = self.create_tangent_tracer_group(obj)
     
-        brush_material, existing_img_texture = self.create_shader(obj)
+        brush_material, existing_img_texture = self.create_shader(obj, stroke_style)
         self.create_geometry_nodes(obj, tangent_group_name, curves, brush_material)
 
         return {'FINISHED'}
+
+
 
     def create_tangent_tracer_group(self, obj):
         node_tree = bpy.data.node_groups.new(CURVE_TANGENT_NAME, 'GeometryNodeTree')
@@ -69,7 +76,6 @@ class ObjectPainterEffect(bpy.types.Operator):
 
         group_output = self.create_node(node_tree, 'NodeGroupOutput')
         group_output.location = (1200, 0)
-
 
         object_info = self.create_node(node_tree, 'GeometryNodeObjectInfo')
         object_info.location = (-600, 300)
@@ -148,8 +154,6 @@ class ObjectPainterEffect(bpy.types.Operator):
         align_tangent.axis = "Y"
         align_tangent.pivot_axis = "Z"
 
-
-
         node_tree.links.new(group_input_1.outputs["Mesh"], distributePoint.inputs["Mesh"])
         node_tree.links.new(group_input_1.outputs["Instance"], instanceOnPoint.inputs["Instance"])
         node_tree.links.new(distributePoint.outputs["Points"], instanceOnPoint.inputs["Points"])
@@ -183,8 +187,48 @@ class ObjectPainterEffect(bpy.types.Operator):
         node_tree.links.new(scaled_size.outputs["Vector"], adjusted_size.inputs[0])
         node_tree.links.new(size_multiplier.outputs["Vector"], adjusted_size.inputs[1])
         node_tree.links.new(adjusted_size.outputs["Vector"], instanceOnPoint.inputs["Scale"])
+        
+        # Curvature 
+        capture_normal = self.create_node(node_tree, "GeometryNodeCaptureAttribute")
+        capture_normal.domain = "POINT"
+        capture_normal.location = (200, 100)
+
+        sample_nearest_curvature = self.create_node(node_tree, "GeometryNodeSampleNearest")
+        sample_nearest_curvature.location = (400, 100)
+
+        subtract_normals = self.create_node(node_tree, "ShaderNodeVectorMath")
+        subtract_normals.operation = "SUBTRACT"
+        subtract_normals.location = (600, 100)
+
+        curvature_length = self.create_node(node_tree, "ShaderNodeVectorMath")
+        curvature_length.operation = "LENGTH"
+        curvature_length.location = (800, 100)
+
+        map_range = self.create_node(node_tree, "ShaderNodeMapRange")
+        map_range.inputs["From Min"].default_value = 0.0
+        map_range.inputs["From Max"].default_value = 0.5
+        map_range.inputs["To Min"].default_value = 0.5
+        map_range.inputs["To Max"].default_value = 1.5
+        map_range.clamp = True
+        map_range.location = (1000, 100)
+
+        multiply_scale = self.create_node(node_tree, "ShaderNodeVectorMath")
+        multiply_scale.operation = "MULTIPLY"
+        multiply_scale.location = (1200, 100)
+
+        node_tree.links.new(distributePoint.outputs["Points"], capture_normal.inputs["Geometry"])
+        node_tree.links.new(capture_normal.outputs["Geometry"], sample_nearest_curvature.inputs["Sample Position"])
+        node_tree.links.new(sample_nearest_curvature.outputs["Index"], subtract_normals.inputs[1])
+        node_tree.links.new(capture_normal.outputs["Geometry"], subtract_normals.inputs[0])
+        node_tree.links.new(subtract_normals.outputs["Vector"], curvature_length.inputs[0])
+        node_tree.links.new(curvature_length.outputs["Value"], map_range.inputs["Value"])
+        node_tree.links.new(map_range.outputs["Result"], multiply_scale.inputs[1])
+        node_tree.links.new(group_input_1.outputs["Scale"], multiply_scale.inputs[0])
+        node_tree.links.new(multiply_scale.outputs["Vector"], instanceOnPoint.inputs["Scale"])
 
         return node_tree.name
+
+    
     
     def create_geometry_nodes(self, obj, tangent_group_name, bezier_curve, brush_material):
             
@@ -375,16 +419,22 @@ class ObjectPainterEffect(bpy.types.Operator):
         node_tree.links.new(vector_rotate.outputs["Vector"], store_normal.inputs["Value"])
         node_tree.links.new(joinGeometry.outputs["Geometry"], group_output.inputs["Geometry"])
 
-    def create_shader(self, obj):
+
+
+    def create_shader(self, obj, stroke_style):
         material = None
         for m in obj.data.materials:
             if m.name.startswith(SHADER_NAME):
                 return (m, None)
 
-
+        for slot in obj.material_slots:
+            if slot.material and slot.material.name.startswith(SHADER_NAME):
+                obj.data.materials.pop(index=obj.material_slots[:].index(slot))
+            
         existing_material = obj.active_material
         default_img = None
         default_color = (0.506, 0.8, 0.192, 1)
+        
         if existing_material is not None and existing_material.node_tree is not None:
             nodes = existing_material.node_tree.nodes
             principled = next(n for n in nodes if n.type == 'BSDF_PRINCIPLED')
@@ -408,20 +458,26 @@ class ObjectPainterEffect(bpy.types.Operator):
             obj.data.materials.append(existing_material)
             obj.active_material = existing_material
 
+#        material = bpy.data.materials.new(name=SHADER_NAME)
+#        obj.data.materials.append(material)
+#        material.surface_render_method = "BLENDED"
+
+#        # Check if the material uses nodes
+#        if not material.use_nodes:
+#            material.use_nodes = True
+
+#        # Access the node tree
+#        node_tree = material.node_tree
+
+#        # Clear existing nodes
+#        for node in node_tree.nodes:
+#            node_tree.nodes.remove(node)
         material = bpy.data.materials.new(name=SHADER_NAME)
         obj.data.materials.append(material)
-        material.surface_render_method = "BLENDED"
-
-        # Check if the material uses nodes
-        if not material.use_nodes:
-            material.use_nodes = True
-
-        # Access the node tree
+        obj.active_material = material
+        material.use_nodes = True
         node_tree = material.node_tree
-
-        # Clear existing nodes
-        for node in node_tree.nodes:
-            node_tree.nodes.remove(node)
+        node_tree.nodes.clear()
 
         geometry = self.create_node(node_tree, 'ShaderNodeNewGeometry')
         geometry.location = (0, 0)
@@ -491,14 +547,29 @@ class ObjectPainterEffect(bpy.types.Operator):
         # image_texture.image = image
         # TODO: this iswhen the png is the same directory as the current blend
         blend_file_directory = os.path.dirname(bpy.data.filepath)
-        image_path = os.path.join(blend_file_directory, "stroke.png")
+        image_path = os.path.join(blend_file_directory, stroke_style)
 
-        print(bpy.data.filepath, blend_file_directory, image_path)
+#        print(bpy.data.filepath, blend_file_directory, image_path)
         if os.path.exists(image_path):
-            image = bpy.data.images.load(image_path)
+            # Check if the image is already loaded to avoid duplicates
+            image_name = os.path.basename(image_path)
+            if image_name in bpy.data.images:
+                image = bpy.data.images[image_name]
+            else:
+                image = bpy.data.images.load(image_path)
+            
+            # Update the existing brush_texture node with the new image
             brush_texture.image = image
+            brush_texture.interpolation = 'Smart'
+            brush_texture.extension = 'REPEAT'
+            
+            # Force Blender to refresh the shader
+            bpy.context.view_layer.update()
+            bpy.context.scene.update()
         else:
-            self.report({'ERROR'}, f"Cannot find image file at {image_path}")
+            self.report({'ERROR'}, f"Cannot find image file: {stroke_style}")
+
+
         
         multiply = node_tree.nodes.new(type='ShaderNodeMath')
         multiply.operation = 'MULTIPLY'
@@ -556,8 +627,16 @@ class ObjectPainterEffect(bpy.types.Operator):
         node_tree.links.new(separate_color.outputs["Blue"], multiply_add_a.inputs["Value"])
         node_tree.links.new(attribute_random.outputs["Color"], separate_color.inputs["Color"])
 
+
+        if material.name not in obj.data.materials:
+            obj.data.materials.append(material)
+            obj.active_material = material
+            bpy.context.view_layer.update()
+    
         return (material, default_img)
 
+    
+    
     
     # generate bezier curves on the surface of obj to guide the direction of brush strokes
     # TODO: reduce frequency of curves when mesh is very complicated
@@ -610,21 +689,31 @@ class ObjectPainterEffect(bpy.types.Operator):
 
         return new_bezier
 
+
+
     def get_default_density(self, obj):
         min_extent = self.get_obj_size(obj)
         return 1500 / min_extent**2
+
+
 
     def get_default_grid_size(self, obj):
         min_extent = self.get_obj_size(obj)
         return (min_extent / 15, min_extent / 3)
 
+
+
     def get_default_translate_z(self, obj):
         min_extent = self.get_obj_size(obj)
         return min_extent / 10
 
+
+
     def get_obj_size(self, obj):
         dims = obj.dimensions
         return (dims.x + dims.y + dims.z) / 3
+
+
 
     # Find the initial loops to render
     # if there are full cycles, return all the full cycles
@@ -646,6 +735,8 @@ class ObjectPainterEffect(bpy.types.Operator):
         if len(cycles) > 0:
             return cycles
         return longest_path
+
+
 
     # given an edge, find the longest edge loop that contains it and return the vertices on that loop
     # stop if the loop hits an used edge or used points
@@ -706,6 +797,8 @@ class ObjectPainterEffect(bpy.types.Operator):
             curr_loop = next_loop
         return verts_on_loop
 
+
+
     # given an edge, find neighboring edges that on on the opposite side of it on the same face (if the face consists of 4 edges)
     # this shold only return 1 or 2 neighbors
     def find_neighboring_edge(self, edge):
@@ -721,6 +814,8 @@ class ObjectPainterEffect(bpy.types.Operator):
                 neighbor.append(next_loop.edge.index)
         return neighbor
 
+
+
     # generate a bezier curve given the control points
     # the handles are automatically set by blender
     def create_spline_from_points(self, mesh, crv, points):
@@ -734,12 +829,14 @@ class ObjectPainterEffect(bpy.types.Operator):
         return spline
     
 
+
 class ObjectPainterEffect_Panel(bpy.types.Panel):
     bl_label = "Painter Effect Tools"
-    bl_idname = "painter_effect_panel"
+    bl_idname = "OBJECT_PT_painter_effect_panel"
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = "object"
+
 
     def draw(self, context):
         layout = self.layout
@@ -750,26 +847,46 @@ class ObjectPainterEffect_Panel(bpy.types.Panel):
             return
 
         layout.operator("object.painter_effect", text= "Apply Painter Effect")
-
-
+        layout.prop(context.scene, "stroke_style", text="Stroke Style") 
 
 
 def menu_func(self, context):
     self.layout.operator(ObjectPainterEffect.bl_idname)
 
 
+def load_stroke_images_callback(self, context):
+    image_dir = os.path.dirname(bpy.data.filepath)
+    images = []
+    if os.path.exists(image_dir):
+        for file in os.listdir(image_dir):
+            if file.lower().endswith('.png'):
+                images.append((file, file, f"Use {file} as stroke style"))
+    if not images:
+        images.append(("None", "None", "No images found"))
+    
+    return images
+
 
 def register():
-        bpy.types.VIEW3D_MT_object.append(menu_func)
-        bpy.utils.register_class(ObjectPainterEffect)
-        bpy.utils.register_class(ObjectPainterEffect_Panel)
+    bpy.types.Scene.stroke_style = bpy.props.EnumProperty(
+        name="Stroke Style",
+        description="Choose the stroke style",
+        items=load_stroke_images_callback
+    )
+    
+    bpy.types.VIEW3D_MT_object.append(menu_func)
+    bpy.utils.register_class(ObjectPainterEffect)
+    bpy.utils.register_class(ObjectPainterEffect_Panel)
+        
         
        
 def unregister():
+    del bpy.types.Scene.stroke_style
     bpy.types.VIEW3D_MT_object.remove(menu_func)
     bpy.utils.unregister_class(ObjectPainterEffect)
     bpy.utils.unregister_class(ObjectPainterEffect_Panel)
     
+
 
 if __name__ == "__main__":
     register()
