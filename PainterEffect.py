@@ -229,7 +229,6 @@ class ObjectPainterEffect(bpy.types.Operator):
         return node_tree.name
 
     
-    
     def create_geometry_nodes(self, obj, tangent_group_name, bezier_curve, brush_material):
             
         node_tree = None
@@ -423,14 +422,17 @@ class ObjectPainterEffect(bpy.types.Operator):
 
     def create_shader(self, obj, stroke_style):
         material = None
+        existing_texture_node = None
+
         for m in obj.data.materials:
             if m.name.startswith(SHADER_NAME):
-                return (m, None)
-
-        for slot in obj.material_slots:
-            if slot.material and slot.material.name.startswith(SHADER_NAME):
-                obj.data.materials.pop(index=obj.material_slots[:].index(slot))
-            
+                material = m
+                nodes = material.node_tree.nodes
+                for node in nodes:
+                    if node.type == "TEX_IMAGE":
+                        existing_texture_node = node
+                break
+        
         existing_material = obj.active_material
         default_img = None
         default_color = (0.506, 0.8, 0.192, 1)
@@ -453,189 +455,160 @@ class ObjectPainterEffect(bpy.types.Operator):
             # Get the Principled BSDF node 
             bsdf = existing_material.node_tree.nodes.get('Principled BSDF')
 
-            # Set the base color of the material 
-            bsdf.inputs['Base Color'].default_value = default_color
-            obj.data.materials.append(existing_material)
-            obj.active_material = existing_material
+        if material is None: 
+            material = bpy.data.materials.new(name=SHADER_NAME)
+            obj.data.materials.append(material)
+            obj.active_material = material
+            material.use_nodes = True
+            node_tree = material.node_tree
+            node_tree.nodes.clear()
 
-#        material = bpy.data.materials.new(name=SHADER_NAME)
-#        obj.data.materials.append(material)
-#        material.surface_render_method = "BLENDED"
+            geometry = self.create_node(node_tree, 'ShaderNodeNewGeometry')
+            geometry.location = (0, 0)
 
-#        # Check if the material uses nodes
-#        if not material.use_nodes:
-#            material.use_nodes = True
+            attribute_normal = node_tree.nodes.new(type='ShaderNodeAttribute')
+            attribute_normal.attribute_type = 'INSTANCER'
+            attribute_normal.attribute_name = ATTRIBUTE_NORMAL
+            # attribute_normal.inputs["Name"].default_value = "normal" 
+            attribute_normal.location = (200, -100)
 
-#        # Access the node tree
-#        node_tree = material.node_tree
+            multiply_add_a = node_tree.nodes.new(type='ShaderNodeMath')
+            multiply_add_a.operation = 'MULTIPLY_ADD'
+            multiply_add_a.inputs[1].default_value = 0.2 #multiplier
+            multiply_add_a.inputs[2].default_value = 1.0 #addend
+            multiply_add_a.location = (200, 100)
 
-#        # Clear existing nodes
-#        for node in node_tree.nodes:
-#            node_tree.nodes.remove(node)
-        material = bpy.data.materials.new(name=SHADER_NAME)
-        obj.data.materials.append(material)
-        obj.active_material = material
-        material.use_nodes = True
-        node_tree = material.node_tree
-        node_tree.nodes.clear()
+            add_node = node_tree.nodes.new(type='ShaderNodeMath')
+    #        add_node.operation = 'ADD'  
 
-        geometry = self.create_node(node_tree, 'ShaderNodeNewGeometry')
-        geometry.location = (0, 0)
-        
-        
-        attribute_normal = node_tree.nodes.new(type='ShaderNodeAttribute')
-        attribute_normal.attribute_type = 'INSTANCER'
-        attribute_normal.attribute_name = ATTRIBUTE_NORMAL
-        # attribute_normal.inputs["Name"].default_value = "normal" 
-        attribute_normal.location = (200, -100)
-        
-        multiply_add_a = node_tree.nodes.new(type='ShaderNodeMath')
-        multiply_add_a.operation = 'MULTIPLY_ADD'
-        multiply_add_a.inputs[1].default_value = 0.2 #multiplier
-        multiply_add_a.inputs[2].default_value = 1.0 #addend
-        multiply_add_a.location = (200, 100)
+            mix_rgb = node_tree.nodes.new(type='ShaderNodeMix')
+            mix_rgb.data_type = 'VECTOR'  
+    #        mix_rgb.use_clamp = True  
+    #        mix_rgb.inputs['Fac'].default_value = 1.0  
+            mix_rgb.location = (400, 0)
 
-#        add_node = node_tree.nodes.new(type='ShaderNodeMath')
-#        add_node.operation = 'ADD'  
+            multiply_add_b = node_tree.nodes.new(type='ShaderNodeMath')
+            multiply_add_b.operation = 'MULTIPLY_ADD'
+            multiply_add_b.inputs[1].default_value = 0.2 #multiplier
+            multiply_add_b.inputs[2].default_value = 1.0 #addend
+            multiply_add_b.location = (200, 300)
 
-        mix_rgb = node_tree.nodes.new(type='ShaderNodeMix')
-        mix_rgb.data_type = 'VECTOR'  
-#        mix_rgb.use_clamp = True  
-#        mix_rgb.inputs['Fac'].default_value = 1.0  
-        mix_rgb.location = (400, 0)
-        
-        multiply_add_b = node_tree.nodes.new(type='ShaderNodeMath')
-        multiply_add_b.operation = 'MULTIPLY_ADD'
-        multiply_add_b.inputs[1].default_value = 0.2 #multiplier
-        multiply_add_b.inputs[2].default_value = 1.0 #addend
-        multiply_add_b.location = (200, 300)
+            multiply_add_c = node_tree.nodes.new(type='ShaderNodeMath')
+            multiply_add_c.operation = 'MULTIPLY_ADD'
+            multiply_add_c.inputs[1].default_value = 0.02  #multiplier
+            multiply_add_c.inputs[2].default_value = 0.5  #addend
+            multiply_add_c.location = (200, 500)
+            
+            attribute_random = node_tree.nodes.new(type='ShaderNodeAttribute')
+            attribute_random.attribute_type = 'INSTANCER'
+            attribute_random.attribute_name = ATTRIBUTE_RANDOM
+            attribute_random.location = (-200, 300)
+            
+            separate_color = node_tree.nodes.new(type='ShaderNodeSeparateColor')
+            separate_color.location = (0, 300)
 
-        multiply_add_c = node_tree.nodes.new(type='ShaderNodeMath')
-        multiply_add_c.operation = 'MULTIPLY_ADD'
-        multiply_add_c.inputs[1].default_value = 0.02  #multiplier
-        multiply_add_c.inputs[2].default_value = 0.5  #addend
-        multiply_add_c.location = (200, 500)
-        
-        attribute_random = node_tree.nodes.new(type='ShaderNodeAttribute')
-        attribute_random.attribute_type = 'INSTANCER'
-        attribute_random.attribute_name = ATTRIBUTE_RANDOM
-        attribute_random.location = (-200, 300)
-        
-        separate_color = node_tree.nodes.new(type='ShaderNodeSeparateColor')
-        separate_color.location = (0, 300)
-        
-        hue_saturation = node_tree.nodes.new(type='ShaderNodeHueSaturation')
-        hue_saturation.location = (400, 300)
-        hue_saturation.inputs[4].default_value = (0.506, 0.8, 0.192, 1) if default_color is None else default_color
-        if default_img is not None:
-            img_texture = node_tree.nodes.new(type="ShaderNodeTexImage")
-            img_texture.image = default_img
-            attribute_uv = node_tree.nodes.new(type='ShaderNodeAttribute')
-            attribute_uv.attribute_type = 'INSTANCER'
-            attribute_uv.attribute_name = 'UVMap'
-        
-        attribute_brushuv = node_tree.nodes.new(type='ShaderNodeAttribute')
-        attribute_brushuv.attribute_type = 'GEOMETRY'
-        attribute_brushuv.attribute_name = ATTRIBUTE_UVMAP
-        attribute_brushuv.location = (-200, -400)
-        
-        brush_texture = node_tree.nodes.new(type='ShaderNodeTexImage')
-        brush_texture.location = (0, -400)
+            hue_saturation = node_tree.nodes.new(type='ShaderNodeHueSaturation')
+            hue_saturation.location = (400, 300)
+            hue_saturation.inputs[4].default_value = (0.506, 0.8, 0.192, 1) if default_color is None else default_color
+            if default_img is not None:
+                img_texture = node_tree.nodes.new(type="ShaderNodeTexImage")
+                img_texture.image = default_img
+                attribute_uv = node_tree.nodes.new(type='ShaderNodeAttribute')
+                attribute_uv.attribute_type = 'INSTANCER'
+                attribute_uv.attribute_name = 'UVMap'
 
-        # image_path = "stroke.png" 
-        # image = bpy.data.images.load(image_path)
-        # image_texture.image = image
-        # TODO: this iswhen the png is the same directory as the current blend
+            attribute_brushuv = node_tree.nodes.new(type='ShaderNodeAttribute')
+            attribute_brushuv.attribute_type = 'GEOMETRY'
+            attribute_brushuv.attribute_name = ATTRIBUTE_UVMAP
+            attribute_brushuv.location = (-200, -400)
+            
+            brush_texture = node_tree.nodes.new(type='ShaderNodeTexImage')
+            brush_texture.location = (0, -400)
+
+            multiply = node_tree.nodes.new(type='ShaderNodeMath')
+            multiply.operation = 'MULTIPLY'
+            multiply.location = (300, -400)
+            
+            light_path = node_tree.nodes.new(type='ShaderNodeLightPath')
+            light_path.location = (0, -700)
+            
+            mix_float = node_tree.nodes.new(type='ShaderNodeMix')
+            mix_float.data_type = 'FLOAT'  
+    #        mix_float.use_clamp = True  
+            mix_float.inputs['A'].default_value = 1.0  
+            mix_float.location = (500, -400)
+
+            principled_bsdf = node_tree.nodes.new(type='ShaderNodeBsdfPrincipled')
+            if existing_material is not None and existing_material.node_tree is not None:
+                nodes = existing_material.node_tree.nodes
+                principled = next(n for n in nodes if n.type == 'BSDF_PRINCIPLED')
+                principled_bsdf.inputs['Metallic'].default_value = principled.inputs['Metallic'].default_value
+                principled_bsdf.inputs['Roughness'].default_value = principled.inputs['Roughness'].default_value
+                principled_bsdf.inputs['IOR'].default_value = principled.inputs['IOR'].default_value
+            else:
+                principled_bsdf.inputs['Metallic'].default_value = 0.387
+                principled_bsdf.inputs['Roughness'].default_value = 0.573 
+                principled_bsdf.inputs['IOR'].default_value = 1.5  
+                
+            principled_bsdf.location = (700, -400)
+            
+            material_output = node_tree.nodes.new(type='ShaderNodeOutputMaterial')
+            material_output.location = (1000, -400)
+
+            node_tree.links.new(geometry.outputs["Normal"], mix_rgb.inputs["A"])
+            node_tree.links.new(attribute_normal.outputs["Vector"], mix_rgb.inputs["B"])
+            node_tree.links.new(mix_rgb.outputs["Result"], principled_bsdf.inputs["Normal"])
+            node_tree.links.new(principled_bsdf.outputs["BSDF"], material_output.inputs["Surface"])
+            node_tree.links.new(attribute_brushuv.outputs["Vector"], brush_texture.inputs["Vector"])
+            node_tree.links.new(brush_texture.outputs["Alpha"], multiply.inputs[1])
+            node_tree.links.new(light_path.outputs["Is Camera Ray"], multiply.inputs["Value"])
+            node_tree.links.new(attribute_normal.outputs["Alpha"], mix_float.inputs["Factor"])
+            node_tree.links.new(multiply.outputs["Value"], mix_float.inputs["B"])
+            node_tree.links.new(mix_float.outputs["Result"], principled_bsdf.inputs["Alpha"])
+            node_tree.links.new(attribute_normal.outputs["Alpha"], mix_rgb.inputs["Factor"])
+
+            node_tree.links.new(multiply_add_c.outputs["Value"], hue_saturation.inputs["Hue"])
+            node_tree.links.new(multiply_add_b.outputs["Value"], hue_saturation.inputs["Saturation"])
+            node_tree.links.new(multiply_add_a.outputs["Value"], hue_saturation.inputs["Value"])
+            if default_img is not None:
+                node_tree.links.new(attribute_uv.outputs["Vector"], img_texture.inputs["Vector"])
+                node_tree.links.new(img_texture.outputs["Color"], hue_saturation.inputs["Color"])
+
+            node_tree.links.new(hue_saturation.outputs["Color"], principled_bsdf.inputs["Base Color"])
+            node_tree.links.new(separate_color.outputs["Red"], multiply_add_c.inputs["Value"])
+            node_tree.links.new(separate_color.outputs["Green"], multiply_add_b.inputs["Value"])
+            node_tree.links.new(separate_color.outputs["Blue"], multiply_add_a.inputs["Value"])
+            node_tree.links.new(attribute_random.outputs["Color"], separate_color.inputs["Color"])
+
+            if ATTRIBUTE_RANDOM not in obj.data.attributes:
+                print(f"Attribute {ATTRIBUTE_RANDOM} not found, creating it and restarting the function...")
+                return self.create_shader(obj, stroke_style)
+            
+            existing_texture_node = node_tree.nodes.new(type='ShaderNodeTexImage')
+            existing_texture_node.location = (0, -400)
+            
         blend_file_directory = os.path.dirname(bpy.data.filepath)
         image_path = os.path.join(blend_file_directory, stroke_style)
 
-#        print(bpy.data.filepath, blend_file_directory, image_path)
         if os.path.exists(image_path):
-            # Check if the image is already loaded to avoid duplicates
             image_name = os.path.basename(image_path)
             if image_name in bpy.data.images:
                 image = bpy.data.images[image_name]
             else:
                 image = bpy.data.images.load(image_path)
-            
-            # Update the existing brush_texture node with the new image
-            brush_texture.image = image
-            brush_texture.interpolation = 'Smart'
-            brush_texture.extension = 'REPEAT'
-            
-            # Force Blender to refresh the shader
+
+            existing_texture_node.image = image
+            existing_texture_node.interpolation = 'Smart'
+            existing_texture_node.extension = 'REPEAT'
+
+
             bpy.context.view_layer.update()
-            bpy.context.scene.update()
         else:
             self.report({'ERROR'}, f"Cannot find image file: {stroke_style}")
 
+        return (material, existing_texture_node.image if existing_texture_node else None)
 
         
-        multiply = node_tree.nodes.new(type='ShaderNodeMath')
-        multiply.operation = 'MULTIPLY'
-        multiply.location = (300, -400)
-        
-        light_path = node_tree.nodes.new(type='ShaderNodeLightPath')
-        light_path.location = (0, -700)
-        
-        mix_float = node_tree.nodes.new(type='ShaderNodeMix')
-        mix_float.data_type = 'FLOAT'  
-#        mix_float.use_clamp = True  
-        mix_float.inputs['A'].default_value = 1.0  
-        mix_float.location = (500, -400)
-        
-        principled_bsdf = node_tree.nodes.new(type='ShaderNodeBsdfPrincipled')
-        if existing_material is not None and existing_material.node_tree is not None:
-            nodes = existing_material.node_tree.nodes
-            principled = next(n for n in nodes if n.type == 'BSDF_PRINCIPLED')
-            principled_bsdf.inputs['Metallic'].default_value = principled.inputs['Metallic'].default_value
-            principled_bsdf.inputs['Roughness'].default_value = principled.inputs['Roughness'].default_value
-            principled_bsdf.inputs['IOR'].default_value = principled.inputs['IOR'].default_value
-        else:
-            principled_bsdf.inputs['Metallic'].default_value = 0.387
-            principled_bsdf.inputs['Roughness'].default_value = 0.573 
-            principled_bsdf.inputs['IOR'].default_value = 1.5  
-            
-        principled_bsdf.location = (700, -400)
-        
-        material_output = node_tree.nodes.new(type='ShaderNodeOutputMaterial')
-        material_output.location = (1000, -400)
-        
-    
-        node_tree.links.new(geometry.outputs["Normal"], mix_rgb.inputs["A"])
-        node_tree.links.new(attribute_normal.outputs["Vector"], mix_rgb.inputs["B"])
-        node_tree.links.new(mix_rgb.outputs["Result"], principled_bsdf.inputs["Normal"])
-        node_tree.links.new(principled_bsdf.outputs["BSDF"], material_output.inputs["Surface"])
-        node_tree.links.new(attribute_brushuv.outputs["Vector"], brush_texture.inputs["Vector"])
-        node_tree.links.new(brush_texture.outputs["Alpha"], multiply.inputs[1])
-        node_tree.links.new(light_path.outputs["Is Camera Ray"], multiply.inputs["Value"])
-        node_tree.links.new(attribute_normal.outputs["Alpha"], mix_float.inputs["Factor"])
-        node_tree.links.new(multiply.outputs["Value"], mix_float.inputs["B"])
-        node_tree.links.new(mix_float.outputs["Result"], principled_bsdf.inputs["Alpha"])
-        node_tree.links.new(attribute_normal.outputs["Alpha"], mix_rgb.inputs["Factor"])
-
-        node_tree.links.new(multiply_add_c.outputs["Value"], hue_saturation.inputs["Hue"])
-        node_tree.links.new(multiply_add_b.outputs["Value"], hue_saturation.inputs["Saturation"])
-        node_tree.links.new(multiply_add_a.outputs["Value"], hue_saturation.inputs["Value"])
-        if default_img is not None:
-            node_tree.links.new(attribute_uv.outputs["Vector"], img_texture.inputs["Vector"])
-            node_tree.links.new(img_texture.outputs["Color"], hue_saturation.inputs["Color"])
-
-        node_tree.links.new(hue_saturation.outputs["Color"], principled_bsdf.inputs["Base Color"])
-        node_tree.links.new(separate_color.outputs["Red"], multiply_add_c.inputs["Value"])
-        node_tree.links.new(separate_color.outputs["Green"], multiply_add_b.inputs["Value"])
-        node_tree.links.new(separate_color.outputs["Blue"], multiply_add_a.inputs["Value"])
-        node_tree.links.new(attribute_random.outputs["Color"], separate_color.inputs["Color"])
-
-
-        if material.name not in obj.data.materials:
-            obj.data.materials.append(material)
-            obj.active_material = material
-            bpy.context.view_layer.update()
-    
-        return (material, default_img)
-
-    
     
     
     # generate bezier curves on the surface of obj to guide the direction of brush strokes
