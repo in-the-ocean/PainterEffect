@@ -316,23 +316,23 @@ class ObjectPainterEffect(bpy.types.Operator):
             brightness_randomness.min_value = 0.0
             brightness_randomness.max_value = 10.0
 
-        color_adjustment_panel = node_tree.interface.new_panel(name = "Color Adjustment")
-        brightness = node_tree.interface.new_socket(name="Brightness", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_adjustment_panel)
-        obj.modifiers["GeometryNodes"]["Socket_14"]=0.0
-        brightness.min_value = -1.0
-        brightness.max_value = 1.0
-        contrast = node_tree.interface.new_socket(name="Contrast",in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_adjustment_panel)
-        obj.modifiers["GeometryNodes"]["Socket_15"]=0.0
-        contrast.min_value = -3.0
-        contrast.max_value = 3.0
-        alpha = node_tree.interface.new_socket(name="Transparency", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_adjustment_panel)
-        obj.modifiers["GeometryNodes"]["Socket_16"]=1.0
-        alpha.min_value = 0.0
-        alpha.max_value = 3.0
-        gamma = node_tree.interface.new_socket(name="Gamma", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_adjustment_panel)
-        obj.modifiers["GeometryNodes"]["Socket_17"]=1.0
-        gamma.min_value = 0.0
-        gamma.max_value = 10.0
+            color_adjustment_panel = node_tree.interface.new_panel(name = "Color Adjustment")
+            brightness = node_tree.interface.new_socket(name="Brightness", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_adjustment_panel)
+            obj.modifiers["GeometryNodes"]["Socket_14"]=0.0
+            brightness.min_value = -1.0
+            brightness.max_value = 1.0
+            contrast = node_tree.interface.new_socket(name="Contrast",in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_adjustment_panel)
+            obj.modifiers["GeometryNodes"]["Socket_15"]=0.0
+            contrast.min_value = -3.0
+            contrast.max_value = 3.0
+            alpha = node_tree.interface.new_socket(name="Transparency", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_adjustment_panel)
+            obj.modifiers["GeometryNodes"]["Socket_16"]=1.0
+            alpha.min_value = 0.0
+            alpha.max_value = 3.0
+            gamma = node_tree.interface.new_socket(name="Gamma", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_adjustment_panel)
+            obj.modifiers["GeometryNodes"]["Socket_17"]=1.0
+            gamma.min_value = 0.0
+            gamma.max_value = 10.0
 
         store_brightness = self.create_node(node_tree, "GeometryNodeStoreNamedAttribute")
         store_brightness.inputs["Name"].default_value = ATTRIBUTE_BRIGHTNESS
