@@ -110,7 +110,7 @@ class ObjectPainterEffect(bpy.types.Operator):
         curve_to_mesh_2.location = (200, 300)
 
         sample_nearest = self.create_node(node_tree, 'GeometryNodeSampleNearest')
-        sample_nearest.location = (400, 200)
+        sample_nearest.location = (400, 300)
 
         sample_index = self.create_node(node_tree, 'GeometryNodeSampleIndex')
         sample_index.location = (600, 300)
@@ -204,14 +204,14 @@ class ObjectPainterEffect(bpy.types.Operator):
         # Curvature 
         capture_normal = self.create_node(node_tree, "GeometryNodeCaptureAttribute")
         capture_normal.domain = "POINT"
-        capture_normal.location = (200, 100)
+        capture_normal.location = (400, 500)
 
         sample_nearest_curvature = self.create_node(node_tree, "GeometryNodeSampleNearest")
-        sample_nearest_curvature.location = (400, 100)
+        sample_nearest_curvature.location = (600, 500)
 
         subtract_normals = self.create_node(node_tree, "ShaderNodeVectorMath")
         subtract_normals.operation = "SUBTRACT"
-        subtract_normals.location = (600, 100)
+        subtract_normals.location = (800, 300)
 
         curvature_length = self.create_node(node_tree, "ShaderNodeVectorMath")
         curvature_length.operation = "LENGTH"
@@ -223,16 +223,16 @@ class ObjectPainterEffect(bpy.types.Operator):
         map_range.inputs["To Min"].default_value = 0.5
         map_range.inputs["To Max"].default_value = 1.5
         map_range.clamp = True
-        map_range.location = (1000, 100)
+        map_range.location = (1000, 300)
 
         multiply_scale = self.create_node(node_tree, "ShaderNodeVectorMath")
         multiply_scale.operation = "MULTIPLY"
-        multiply_scale.location = (1200, 100)
+        multiply_scale.location = (1200, 300)
 
         node_tree.links.new(distributePoint.outputs["Points"], capture_normal.inputs["Geometry"])
-        node_tree.links.new(capture_normal.outputs["Geometry"], sample_nearest_curvature.inputs["Sample Position"])
+        node_tree.links.new(capture_normal.outputs["Geometry"], sample_nearest_curvature.inputs["Geometry"])
         node_tree.links.new(sample_nearest_curvature.outputs["Index"], subtract_normals.inputs[1])
-        node_tree.links.new(capture_normal.outputs["Geometry"], subtract_normals.inputs[0])
+        # node_tree.links.new(capture_normal.outputs["Geometry"], subtract_normals.inputs[0])
         node_tree.links.new(subtract_normals.outputs["Vector"], curvature_length.inputs[0])
         node_tree.links.new(curvature_length.outputs["Value"], map_range.inputs["Value"])
         node_tree.links.new(map_range.outputs["Result"], multiply_scale.inputs[1])
@@ -379,7 +379,13 @@ class ObjectPainterEffect(bpy.types.Operator):
         
         translateBrush = self.create_node(node_tree, "GeometryNodeTranslateInstances")
         translateBrush.location = (800, 200)
-        translateBrush.inputs['Translation'].default_value[2] = self.get_default_translate_z(obj)
+        
+        zRamdon = self.create_node(node_tree, "FunctionNodeRandomValue")
+        zRamdon.location = (600, 0)
+        zRamdon.data_type = 'FLOAT_VECTOR'
+        zRamdon.inputs[1].default_value[0]=0.0
+        zRamdon.inputs[1].default_value[1]=0.0
+        zRamdon.inputs[1].default_value[2]= self.get_default_translate_z(obj)
         
         store_normal = self.create_node(node_tree, "GeometryNodeStoreNamedAttribute")
         store_normal.inputs["Name"].default_value = ATTRIBUTE_NORMAL
@@ -471,6 +477,7 @@ class ObjectPainterEffect(bpy.types.Operator):
         node_tree.links.new(grid.outputs["UV Map"], store_uv_map.inputs["Value"])
         node_tree.links.new(store_uv_map.outputs["Geometry"], tangent_transfer.inputs["Instance"])
         node_tree.links.new(tangent_transfer.outputs["Instances"], translateBrush.inputs["Instances"])
+        node_tree.links.new(zRamdon.outputs["Value"], translateBrush.inputs["Translation"])
         node_tree.links.new(translateBrush.outputs["Instances"], store_normal.inputs["Geometry"])
         node_tree.links.new(random_value.outputs["Value"], store_random.inputs["Value"])
         node_tree.links.new(store_normal.outputs["Geometry"], store_random.inputs["Geometry"])
