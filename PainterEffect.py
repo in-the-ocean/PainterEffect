@@ -16,6 +16,10 @@ CURVE_TANGENT_NAME = "Painter Effect Curve Tangent"
 ATTRIBUTE_UVMAP = "brushUV"
 ATTRIBUTE_RANDOM = "random"
 ATTRIBUTE_NORMAL = "normal"
+ATTRIBUTE_BRIGHTNESS = "brightness"
+ATTRIBUTE_CONTRAST = "contrast"
+ATTRIBUTE_ALPHA = "alpha"
+ATTRIBUTE_GAMMA = "gamma"
 
 TARGET_LINE_NUMBER = 50
 
@@ -311,6 +315,48 @@ class ObjectPainterEffect(bpy.types.Operator):
         brightness_randomness.min_value = 0.0
         brightness_randomness.max_value = 10.0
 
+        color_adjustment_panel = node_tree.interface.new_panel(name = "Color Adjustment")
+        brightness = node_tree.interface.new_socket(name="Brightness", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_adjustment_panel)
+        obj.modifiers["GeometryNodes"]["Socket_14"]=0.0
+        brightness.min_value = -1.0
+        brightness.max_value = 1.0
+        contrast = node_tree.interface.new_socket(name="Contrast",in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_adjustment_panel)
+        obj.modifiers["GeometryNodes"]["Socket_15"]=0.0
+        contrast.min_value = -3.0
+        contrast.max_value = 3.0
+        alpha = node_tree.interface.new_socket(name="Transparency", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_adjustment_panel)
+        obj.modifiers["GeometryNodes"]["Socket_16"]=1.0
+        alpha.min_value = 0.0
+        alpha.max_value = 3.0
+        gamma = node_tree.interface.new_socket(name="Gamma", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_adjustment_panel)
+        obj.modifiers["GeometryNodes"]["Socket_17"]=1.0
+        gamma.min_value = 0.0
+        gamma.max_value = 10.0
+
+        store_brightness = self.create_node(node_tree, "GeometryNodeStoreNamedAttribute")
+        store_brightness.inputs["Name"].default_value = ATTRIBUTE_BRIGHTNESS
+        store_brightness.data_type = 'FLOAT'
+        store_brightness.domain = "INSTANCE" 
+        store_brightness.location = (1400, -400)
+
+        store_contrast = self.create_node(node_tree, "GeometryNodeStoreNamedAttribute")
+        store_contrast.inputs["Name"].default_value = ATTRIBUTE_CONTRAST
+        store_contrast.data_type = 'FLOAT'
+        store_contrast.domain = "INSTANCE" 
+        store_contrast.location = (1600, -400)
+
+        store_alpha = self.create_node(node_tree, "GeometryNodeStoreNamedAttribute")
+        store_alpha.inputs["Name"].default_value = ATTRIBUTE_ALPHA
+        store_alpha.data_type = 'FLOAT'
+        store_alpha.domain = "INSTANCE" 
+        store_alpha.location = (1800, -400)
+
+        store_gamma = self.create_node(node_tree, "GeometryNodeStoreNamedAttribute")
+        store_gamma.inputs["Name"].default_value = ATTRIBUTE_GAMMA
+        store_gamma.data_type = 'FLOAT'
+        store_gamma.domain = "INSTANCE" 
+        store_gamma.location = (2000, -400)
+
         brush_scale = self.create_node(node_tree, "ShaderNodeCombineXYZ")
         brush_scale.label = "Brush Scale"
         brush_scale.location = (200,200)
@@ -404,6 +450,16 @@ class ObjectPainterEffect(bpy.types.Operator):
         node_tree.links.new(group_input.outputs[8], color_randomness.inputs["X"])
         node_tree.links.new(group_input.outputs[9], color_randomness.inputs["Y"])
         node_tree.links.new(group_input.outputs[10], color_randomness.inputs["Z"])
+
+        node_tree.links.new(group_input.outputs[11], store_brightness.inputs["Value"])
+        node_tree.links.new(store_random.outputs["Geometry"], store_brightness.inputs["Geometry"])
+        node_tree.links.new(group_input.outputs[12], store_contrast.inputs["Value"])
+        node_tree.links.new(store_brightness.outputs["Geometry"], store_contrast.inputs["Geometry"])
+        node_tree.links.new(group_input.outputs[13], store_alpha.inputs["Value"])
+        node_tree.links.new(store_contrast.outputs["Geometry"], store_alpha.inputs["Geometry"])
+        node_tree.links.new(group_input.outputs[14], store_gamma.inputs["Value"])
+        node_tree.links.new(store_alpha.outputs["Geometry"], store_gamma.inputs["Geometry"])
+
         node_tree.links.new(color_value.outputs["Vector"], color_subtract.inputs[0])
         node_tree.links.new(color_randomness.outputs["Vector"], color_subtract.inputs[1])
         node_tree.links.new(color_value.outputs["Vector"], color_add.inputs[0])
@@ -417,7 +473,7 @@ class ObjectPainterEffect(bpy.types.Operator):
         node_tree.links.new(translateBrush.outputs["Instances"], store_normal.inputs["Geometry"])
         node_tree.links.new(random_value.outputs["Value"], store_random.inputs["Value"])
         node_tree.links.new(store_normal.outputs["Geometry"], store_random.inputs["Geometry"])
-        node_tree.links.new(store_random.outputs["Geometry"], set_material.inputs["Geometry"])
+        node_tree.links.new(store_gamma.outputs["Geometry"], set_material.inputs["Geometry"])
         node_tree.links.new(set_material.outputs["Geometry"], joinGeometry.inputs["Geometry"])
 
         node_tree.links.new(group_input.outputs["Geometry"], joinGeometry.inputs["Geometry"])
@@ -441,6 +497,7 @@ class ObjectPainterEffect(bpy.types.Operator):
                     if node.type == "TEX_IMAGE":
                         existing_texture_node = node
                 break
+                
         
         existing_material = obj.active_material
         default_img = None
@@ -461,8 +518,6 @@ class ObjectPainterEffect(bpy.types.Operator):
             existing_material = bpy.data.materials.new(name="Material")
             existing_material.use_nodes = True
 
-            # Get the Principled BSDF node 
-            bsdf = existing_material.node_tree.nodes.get('Principled BSDF')
 
         if material is None: 
             material = bpy.data.materials.new(name=SHADER_NAME)
@@ -486,9 +541,6 @@ class ObjectPainterEffect(bpy.types.Operator):
             multiply_add_a.inputs[1].default_value = 0.2 #multiplier
             multiply_add_a.inputs[2].default_value = 1.0 #addend
             multiply_add_a.location = (200, 100)
-
-            add_node = node_tree.nodes.new(type='ShaderNodeMath')
-    #        add_node.operation = 'ADD'  
 
             mix_rgb = node_tree.nodes.new(type='ShaderNodeMix')
             mix_rgb.data_type = 'VECTOR'  
@@ -526,20 +578,51 @@ class ObjectPainterEffect(bpy.types.Operator):
                 attribute_uv.attribute_type = 'INSTANCER'
                 attribute_uv.attribute_name = 'UVMap'
 
+            bright_contrast = node_tree.nodes.new(type='ShaderNodeBrightContrast')
+            bright_contrast.location = (600, 300)
+
+            attribute_bright = node_tree.nodes.new(type='ShaderNodeAttribute')
+            attribute_bright.attribute_type = 'INSTANCER'
+            attribute_bright.attribute_name = ATTRIBUTE_BRIGHTNESS
+            attribute_bright.location = (600, 700)
+            
+            attribute_contrast = node_tree.nodes.new(type='ShaderNodeAttribute')
+            attribute_contrast.attribute_type = 'INSTANCER'
+            attribute_contrast.attribute_name = ATTRIBUTE_CONTRAST
+            attribute_contrast.location = (600, 500)
+
+            gamma = node_tree.nodes.new(type='ShaderNodeGamma')
+            gamma.location = (800, 300)
+
+            attribute_gamma = node_tree.nodes.new(type='ShaderNodeAttribute')
+            attribute_gamma.attribute_type = 'INSTANCER'
+            attribute_gamma.attribute_name = ATTRIBUTE_GAMMA
+            attribute_gamma.location = (800, 500)
+            
+
             attribute_brushuv = node_tree.nodes.new(type='ShaderNodeAttribute')
             attribute_brushuv.attribute_type = 'GEOMETRY'
             attribute_brushuv.attribute_name = ATTRIBUTE_UVMAP
-            attribute_brushuv.location = (-200, -400)
+            attribute_brushuv.location = (-400, -400)
             
             brush_texture = node_tree.nodes.new(type='ShaderNodeTexImage')
-            brush_texture.location = (0, -400)
+            brush_texture.location = (-200, -400)
+
+            alpha_adjustment = node_tree.nodes.new(type='ShaderNodeMath')
+            alpha_adjustment.operation = 'MULTIPLY'
+            alpha_adjustment.location = (100, -400)
+
+            attribute_alpha = node_tree.nodes.new(type='ShaderNodeAttribute')
+            attribute_alpha.attribute_type = 'INSTANCER'
+            attribute_alpha.attribute_name = ATTRIBUTE_ALPHA
+            attribute_alpha.location = (100, -600)
 
             multiply = node_tree.nodes.new(type='ShaderNodeMath')
             multiply.operation = 'MULTIPLY'
             multiply.location = (300, -400)
             
             light_path = node_tree.nodes.new(type='ShaderNodeLightPath')
-            light_path.location = (0, -700)
+            light_path.location = (-200, -700)
             
             mix_float = node_tree.nodes.new(type='ShaderNodeMix')
             mix_float.data_type = 'FLOAT'  
@@ -569,7 +652,9 @@ class ObjectPainterEffect(bpy.types.Operator):
             node_tree.links.new(mix_rgb.outputs["Result"], principled_bsdf.inputs["Normal"])
             node_tree.links.new(principled_bsdf.outputs["BSDF"], material_output.inputs["Surface"])
             node_tree.links.new(attribute_brushuv.outputs["Vector"], brush_texture.inputs["Vector"])
-            node_tree.links.new(brush_texture.outputs["Alpha"], multiply.inputs[1])
+            node_tree.links.new(brush_texture.outputs["Alpha"], alpha_adjustment.inputs[0])
+            node_tree.links.new(attribute_alpha.outputs["Fac"], alpha_adjustment.inputs[1])
+            node_tree.links.new(alpha_adjustment.outputs["Value"], multiply.inputs[1])
             node_tree.links.new(light_path.outputs["Is Camera Ray"], multiply.inputs["Value"])
             node_tree.links.new(attribute_normal.outputs["Alpha"], mix_float.inputs["Factor"])
             node_tree.links.new(multiply.outputs["Value"], mix_float.inputs["B"])
@@ -583,7 +668,12 @@ class ObjectPainterEffect(bpy.types.Operator):
                 node_tree.links.new(attribute_uv.outputs["Vector"], img_texture.inputs["Vector"])
                 node_tree.links.new(img_texture.outputs["Color"], hue_saturation.inputs["Color"])
 
-            node_tree.links.new(hue_saturation.outputs["Color"], principled_bsdf.inputs["Base Color"])
+            node_tree.links.new(hue_saturation.outputs["Color"], bright_contrast.inputs["Color"])
+            node_tree.links.new(attribute_bright.outputs["Fac"], bright_contrast.inputs["Bright"])
+            node_tree.links.new(attribute_contrast.outputs["Fac"], bright_contrast.inputs["Contrast"])
+            node_tree.links.new(bright_contrast.outputs["Color"], gamma.inputs["Color"])
+            node_tree.links.new(attribute_gamma.outputs["Fac"], gamma.inputs["Gamma"])
+            node_tree.links.new(gamma.outputs["Color"], principled_bsdf.inputs["Base Color"])
             node_tree.links.new(separate_color.outputs["Red"], multiply_add_c.inputs["Value"])
             node_tree.links.new(separate_color.outputs["Green"], multiply_add_b.inputs["Value"])
             node_tree.links.new(separate_color.outputs["Blue"], multiply_add_a.inputs["Value"])
