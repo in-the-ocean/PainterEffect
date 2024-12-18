@@ -266,50 +266,51 @@ class ObjectPainterEffect(bpy.types.Operator):
         group_input = self.create_node(node_tree, 'NodeGroupInput')
         group_input.location = (0, 0)
 
-        brush_panel = node_tree.interface.new_panel(name = "Brush Parameters")
-        brush_density = node_tree.interface.new_socket(name="Density", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = brush_panel)
-        obj.modifiers["GeometryNodes"]["Socket_1"]= 1.0
-        brush_density.min_value = 0.0
-        brush_density.max_value = 10.0
-        brush_scale_X = node_tree.interface.new_socket(name="Scale: X", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = brush_panel)
-        obj.modifiers["GeometryNodes"]["Socket_2"]= 1.0
-        brush_scale_X.min_value = 0.0
-        brush_scale_X.max_value = 10.0
-        brush_scale_Y = node_tree.interface.new_socket(name="Scale: Y", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = brush_panel)
-        obj.modifiers["GeometryNodes"]["Socket_3"]= 1.0
-        brush_scale_Y.min_value = 0.0
-        brush_scale_Y.max_value = 10.0
-        brush_scale_Z = node_tree.interface.new_socket(name="Scale: Z", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = brush_panel)
-        brush_scale_Z.default_value = 1.0
-        brush_scale_Z.hide_in_modifier= True
-        
-        color_value_panel = node_tree.interface.new_panel(name = "Color Value")
-        hue_value = node_tree.interface.new_socket(name="Hue", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_value_panel)
-        obj.modifiers["GeometryNodes"]["Socket_6"]=0.0
-        hue_value.min_value = -10.0
-        hue_value.max_value = 10.0
-        saturation_value = node_tree.interface.new_socket(name="Saturation",in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_value_panel)
-        obj.modifiers["GeometryNodes"]["Socket_7"]=0.0
-        saturation_value.min_value = -10.0
-        saturation_value.max_value = 10.0
-        brightness_value = node_tree.interface.new_socket(name="Brightness", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_value_panel)
-        obj.modifiers["GeometryNodes"]["Socket_8"]=0.0
-        brightness_value.min_value = -10.0
-        brightness_value.max_value = 10.0
+        if len(node_tree.interface.items_tree) == 0:
+            brush_panel = node_tree.interface.new_panel(name = "Brush Parameters")
+            brush_density = node_tree.interface.new_socket(name="Density", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = brush_panel)
+            obj.modifiers["GeometryNodes"]["Socket_1"]= 1.0
+            brush_density.min_value = 0.0
+            brush_density.max_value = 10.0
+            brush_scale_X = node_tree.interface.new_socket(name="Scale: X", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = brush_panel)
+            obj.modifiers["GeometryNodes"]["Socket_2"]= 1.0
+            brush_scale_X.min_value = 0.0
+            brush_scale_X.max_value = 10.0
+            brush_scale_Y = node_tree.interface.new_socket(name="Scale: Y", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = brush_panel)
+            obj.modifiers["GeometryNodes"]["Socket_3"]= 1.0
+            brush_scale_Y.min_value = 0.0
+            brush_scale_Y.max_value = 10.0
+            brush_scale_Z = node_tree.interface.new_socket(name="Scale: Z", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = brush_panel)
+            brush_scale_Z.default_value = 1.0
+            brush_scale_Z.hide_in_modifier= True
+            
+            color_value_panel = node_tree.interface.new_panel(name = "Color Value")
+            hue_value = node_tree.interface.new_socket(name="Hue", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_value_panel)
+            obj.modifiers["GeometryNodes"]["Socket_6"]=0.0
+            hue_value.min_value = -10.0
+            hue_value.max_value = 10.0
+            saturation_value = node_tree.interface.new_socket(name="Saturation",in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_value_panel)
+            obj.modifiers["GeometryNodes"]["Socket_7"]=0.0
+            saturation_value.min_value = -10.0
+            saturation_value.max_value = 10.0
+            brightness_value = node_tree.interface.new_socket(name="Brightness", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_value_panel)
+            obj.modifiers["GeometryNodes"]["Socket_8"]=0.0
+            brightness_value.min_value = -10.0
+            brightness_value.max_value = 10.0
 
-        color_randomness_panel = node_tree.interface.new_panel(name = "Color Randomness")
-        hue_randomness = node_tree.interface.new_socket(name="Hue", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_randomness_panel)
-        obj.modifiers["GeometryNodes"]["Socket_10"]=1.0
-        hue_randomness.min_value = 0.0
-        hue_randomness.max_value = 10.0
-        saturation_randomness = node_tree.interface.new_socket(name="Saturation",in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_randomness_panel)
-        obj.modifiers["GeometryNodes"]["Socket_11"]=1.0
-        saturation_randomness.min_value = 0.0
-        saturation_randomness.max_value = 10.0
-        brightness_randomness = node_tree.interface.new_socket(name="Brightness", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_randomness_panel)
-        obj.modifiers["GeometryNodes"]["Socket_12"]=1.0
-        brightness_randomness.min_value = 0.0
-        brightness_randomness.max_value = 10.0
+            color_randomness_panel = node_tree.interface.new_panel(name = "Color Randomness")
+            hue_randomness = node_tree.interface.new_socket(name="Hue", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_randomness_panel)
+            obj.modifiers["GeometryNodes"]["Socket_10"]=1.0
+            hue_randomness.min_value = 0.0
+            hue_randomness.max_value = 10.0
+            saturation_randomness = node_tree.interface.new_socket(name="Saturation",in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_randomness_panel)
+            obj.modifiers["GeometryNodes"]["Socket_11"]=1.0
+            saturation_randomness.min_value = 0.0
+            saturation_randomness.max_value = 10.0
+            brightness_randomness = node_tree.interface.new_socket(name="Brightness", in_out='INPUT', socket_type= 'NodeSocketFloat', parent = color_randomness_panel)
+            obj.modifiers["GeometryNodes"]["Socket_12"]=1.0
+            brightness_randomness.min_value = 0.0
+            brightness_randomness.max_value = 10.0
 
         brush_scale = self.create_node(node_tree, "ShaderNodeCombineXYZ")
         brush_scale.label = "Brush Scale"
